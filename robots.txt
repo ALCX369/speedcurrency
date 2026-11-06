@@ -1,0 +1,3 @@
+User-agent: *
+Allow: /
+Sitemap: https://speedcurrency.is-local.org/sitemap.xml

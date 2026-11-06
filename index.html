@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SpeedCurrency – Fast Free Currency Converter</title>
+<meta name="description" content="Convert 160+ world currencies instantly. Free, fast, no sign-up.">
+<style>
+:root{--bg:#f3f6f8;--card:#fff;--ink:#10222e;--mute:#5b6b76;--line:#d5dde3;--acc:#0b7a75;--hi:#ffc83d;color-scheme:light}
+@media(prefers-color-scheme:dark){:root{--bg:#0c1820;--card:#13242e;--ink:#e8f0f4;--mute:#93a5b0;--line:#25394590;--acc:#3cc4bb;--hi:#ffc83d;color-scheme:dark}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+header,main,footer{max-width:960px;margin:0 auto;padding:0 16px}
+header{display:flex;justify-content:space-between;align-items:center;padding-top:18px;padding-bottom:6px}
+.logo{font-weight:800;font-size:1.3rem;letter-spacing:-.02em;color:var(--ink);text-decoration:none}.logo b{background:var(--hi);color:#10222e;padding:0 6px;border-radius:4px;margin-right:2px}
+nav a{color:var(--mute);text-decoration:none;margin-left:14px;font-size:.9rem}
+.layout{display:grid;grid-template-columns:1fr;gap:20px}
+@media(min-width:860px){.layout{grid-template-columns:1fr 300px}}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:20px}
+h1{font-size:1.5rem;margin:18px 0 12px;letter-spacing:-.02em}
+.row{display:grid;grid-template-columns:1fr;gap:12px}
+@media(min-width:560px){.row{grid-template-columns:1fr auto 1fr;align-items:end}}
+label{display:block;font-size:.8rem;color:var(--mute);margin-bottom:4px}
+input{width:100%;font:inherit;font-size:1.1rem;padding:12px;border:1px solid var(--line);border-radius:10px;background:var(--bg);color:var(--ink)}
+input:focus,button:focus-visible{outline:3px solid var(--acc);outline-offset:1px}
+#amt{font-size:1.5rem;font-weight:700}
+button.swap{font-size:1.3rem;border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:50%;width:46px;height:46px;cursor:pointer;justify-self:center}
+.result{margin-top:20px;padding-top:16px;border-top:1px solid var(--line)}
+.from{color:var(--mute)}
+.big{font-size:clamp(2rem,8vw,3.2rem);font-weight:800;letter-spacing:-.03em;font-variant-numeric:tabular-nums;word-break:break-all}
+.big span{color:var(--acc)}
+.meta{color:var(--mute);font-size:.85rem;margin-top:6px}
+.ad{min-height:100px;margin:16px 0;display:flex;align-items:center;justify-content:center}
+.side{display:none;min-height:600px}@media(min-width:860px){.side{display:block}}
+#consent{position:fixed;left:0;right:0;bottom:0;background:var(--card);border-top:1px solid var(--line);padding:14px 16px;display:none;gap:12px;align-items:center;justify-content:center;flex-wrap:wrap;font-size:.9rem;z-index:9}
+#consent button{font:inherit;padding:8px 16px;border-radius:8px;border:1px solid var(--line);background:var(--bg);color:var(--ink);cursor:pointer}
+#consent .ok{background:var(--acc);color:#fff;border-color:var(--acc)}
+footer{color:var(--mute);font-size:.8rem;padding-top:24px;padding-bottom:90px}footer a{color:var(--mute)}
+</style>
+</head>
+<body>
+<header><a class="logo" href="/"><b>Speed</b>Currency</a><nav><a href="about.html">About</a><a href="contact.html">Contact</a></nav></header>
+<main>
+<h1>Currency converter</h1>
+<div class="layout">
+<div>
+<div class="card">
+<div class="row">
+<div><label for="amt">Amount</label><input id="amt" type="text" inputmode="decimal" value="1" autocomplete="off"></div>
+</div>
+<div class="row" style="margin-top:12px">
+<div><label for="from">From</label><input id="from" list="cur" autocomplete="off" value="USD"></div>
+<button class="swap" id="swap" aria-label="Swap currencies">⇄</button>
+<div><label for="to">To</label><input id="to" list="cur" autocomplete="off" value="EUR"></div>
+</div>
+<datalist id="cur"></datalist>
+<div class="result" aria-live="polite">
+<div class="from" id="fromTxt">&nbsp;</div>
+<div class="big" id="out">…</div>
+<div class="meta" id="meta">Loading rates…</div>
+</div>
+</div>
+<div class="ad" id="ad1"></div>
+</div>
+<aside class="side" id="ad2"></aside>
+</div>
+</main>
+<footer>
+<p>Rates are for information only. SpeedCurrency is not responsible for any losses. Rates from the free <a href="https://github.com/fawazahmed0/exchange-api" rel="noopener">currency-api</a>.</p>
+<p><a href="privacy.html">Privacy</a> · <a href="terms.html">Terms</a> · <a href="about.html">About</a> · <a href="contact.html">Contact</a></p>
+</footer>
+<div id="consent" role="dialog" aria-label="Cookie consent"><span>We use cookies for ads. See our <a href="privacy.html">Privacy Policy</a>.</span><button class="ok" id="yes">Accept</button><button id="no">Decline</button></div>
+<script>
+const $=id=>document.getElementById(id);
+const PUB='ca-pub-3155975488847083', SLOT1='1326876060', SLOT2='5046629226';
+let R=null;
+try{const s=JSON.parse(localStorage.getItem('sc')||'{}');if(s.f)$('from').value=s.f;if(s.t)$('to').value=s.t}catch(e){}
+function name(c){try{return new Intl.DisplayNames(['en'],{type:'currency'}).of(c)}catch(e){return c}}
+function code(el){return el.value.trim().toUpperCase().slice(0,3)}
+function fmt(n){const d=n>=1?2:6;return n.toLocaleString(undefined,{maximumFractionDigits:d,minimumFractionDigits:n>=1?2:0})}
+function calc(){
+  if(!R)return;
+  const a=parseFloat($('amt').value.replace(/,/g,'')),f=code($('from')),t=code($('to'));
+  if(!R.rates[f]||!R.rates[t]||isNaN(a)){$('out').textContent='—';$('fromTxt').innerHTML='&nbsp;';$('meta').textContent='Pick two currencies from the list and enter an amount.';return}
+  const rate=R.rates[t]/R.rates[f];
+  $('fromTxt').textContent=fmt(a)+' '+f+' =';
+  $('out').innerHTML=fmt(a*rate)+' <span>'+t+'</span>';
+  $('meta').textContent='1 '+f+' = '+rate.toLocaleString(undefined,{maximumSignificantDigits:6})+' '+t+' · Rates dated '+R.updated;
+  try{localStorage.setItem('sc',JSON.stringify({f,t}))}catch(e){}
+}
+$('swap').onclick=()=>{const f=$('from').value;$('from').value=$('to').value;$('to').value=f;calc()};
+['amt','from','to'].forEach(i=>$(i).addEventListener('input',calc));
+['from','to'].forEach(i=>$(i).addEventListener('focus',e=>e.target.select()));
+const U=['https://cdn.jsdelivr.net/npm/@fawazahmed0/currency-api@latest/v1/currencies/usd.json','https://latest.currency-api.pages.dev/v1/currencies/usd.json'];
+(async()=>{
+  let d=null;
+  for(const u of U){try{const r=await fetch(u);if(r.ok){d=await r.json();break}}catch(e){}}
+  if(!d||!d.usd){$('out').textContent='—';$('meta').textContent='Rates are temporarily unavailable. Please try again shortly.';return}
+  const rates={};
+  for(const k in d.usd){const c=k.toUpperCase();if(c.length===3&&name(c)!==c)rates[c]=d.usd[k]}
+  rates.USD=1;
+  R={rates,updated:d.date};
+  $('cur').innerHTML=Object.keys(rates).sort().map(c=>'<option value="'+c+'" label="'+name(c)+'">').join('');
+  calc();
+})();
+// Ads load only after consent
+function loadAds(){
+  if(PUB.includes('XXXX'))return;
+  const s=document.createElement('script');s.async=true;s.crossOrigin='anonymous';
+  s.src='https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client='+PUB;document.head.appendChild(s);
+  [['ad1',SLOT1,'auto'],['ad2',SLOT2,'auto']].forEach(([id,slot,fmt])=>{
+    const el=$(id);el.innerHTML='<ins class="adsbygoogle" style="display:block;width:100%" data-ad-client="'+PUB+'" data-ad-slot="'+slot+'" data-ad-format="'+fmt+'" data-full-width-responsive="true"></ins>';
+    (window.adsbygoogle=window.adsbygoogle||[]).push({});
+  });
+}
+let c=null;try{c=localStorage.getItem('consent')}catch(e){}
+if(c==='yes')loadAds();else if(!c)$('consent').style.display='flex';
+$('yes').onclick=()=>{try{localStorage.setItem('consent','yes')}catch(e){}$('consent').style.display='none';loadAds()};
+$('no').onclick=()=>{try{localStorage.setItem('consent','no')}catch(e){}$('consent').style.display='none'};
+</script>
+</body>
+</html>
