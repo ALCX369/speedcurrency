@@ -5,7 +5,7 @@ window.SC_CONFIG = {
   SUPABASE_ANON_KEY: "sb_publishable_FXhpiE1_lsLFRwRwULhOog_CCjO-1UP",
   // Google AdSense (shown to free users only). Ads appear once AdSense approves a domain you own.
   ADSENSE_CLIENT: "ca-pub-3155975488847083",
-  ADSENSE_SLOT: "",
+  ADSENSE_SLOT: "1326876060",
   PRICE_MONTHLY: 149,
   PRICE_YEARLY: 1399,
   PRICE_PRO_MONTHLY: 349,
