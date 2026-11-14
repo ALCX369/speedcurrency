@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>SpeedCurrency – travel planner, journal &amp; money</title>
+<meta name="description" content="Plan your next trip with an AI planner that researches documents, agents, places and prices. Keep a travel journal, pin places on your map and convert money.">
+<meta name="theme-color" content="#15171A">
+<link rel="manifest" href="manifest.json">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&family=Inter:wght@400;500;600;700&display=swap">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/maplibre-gl@4/dist/maplibre-gl.css">
+<link rel="stylesheet" href="style.css">
+<script src="config.js"></script>
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<div class="shell">
+  <aside class="side" aria-label="App">
+    <a class="brand" href="#/">speed<span>.</span>currency</a>
+    <nav id="nav" class="nav" aria-label="Main"></nav>
+    <div id="side-ad"></div>
+  </aside>
+  <main id="main" tabindex="-1"></main>
+</div>
+<nav id="tabbar" class="tabbar" aria-label="Main"></nav>
+<div id="toast" class="toast" role="status" aria-live="polite"></div>
+<script src="https://cdn.jsdelivr.net/npm/maplibre-gl@4/dist/maplibre-gl.js" defer></script>
+<script type="module" src="app.js"></script>
+<script data-goatcounter="https://speedcurrency.goatcounter.com/count" async src="//gc.zgo.at/count.js"></script>
+</body>
+</html>
