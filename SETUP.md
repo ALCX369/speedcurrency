@@ -8,8 +8,7 @@ Until step 1–2 are done it runs in **demo mode** (data stays on the device).
 |---|---|---|
 | GitHub Pages | hosting the app | free |
 | Supabase | accounts, database, photos, server functions | 500 MB database, 1 GB photos, 50,000 users/month, 500,000 function calls/month; pauses after 7 days with no visits |
-| Google Gemini API (AI Studio key) | the planner's AI | free tier, rate-limited; Google may use free-tier prompts to improve its products |
-| Tavily | web search for the planner | 1,000 credits/month (about 2 per question → ~500 questions/month) |
+| Puter.js + Perplexity Sonar | the AI planner with live web search | no API keys; each user signs in to a free Puter account and uses their own free AI allowance |
 | OpenFreeMap + MapLibre | map | free, no key |
 | Photon (komoot) | place search | free, fair use |
 | country.is | detects home country at sign-up | free, no key |
@@ -26,13 +25,11 @@ Install the Supabase CLI, then from this folder:
 ```
 supabase login
 supabase link --project-ref YOUR_PROJECT_REF
-supabase secrets set GEMINI_API_KEY=... TAVILY_API_KEY=... APP_ORIGIN=https://alcx369.github.io
 supabase functions deploy register
 supabase functions deploy planner
 supabase functions deploy dpo
 ```
-- Gemini key: aistudio.google.com → Get API key (free tier, no card).
-- Tavily key: tavily.com → free Researcher plan (no card).
+The planner no longer needs keys: it runs in the browser through Puter.js (the `planner` server function is kept as an optional backup that uses Gemini + Tavily keys).
 
 ## 3. Payments (after DPO approves the merchant account)
 ```

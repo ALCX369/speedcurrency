@@ -152,13 +152,48 @@ const api = {
   },
   async ask(chatId, message) {
     if (DEMO) return demoPlanner(chatId, message);
-    const { data, error } = await sb.functions.invoke('planner', { body: { chat_id: chatId, message } });
-    if (error) {
-      let msg = 'The planner could not answer. Try again.';
-      try { msg = (await error.context.json()).error || msg; } catch { /* keep */ }
-      throw new Error(msg);
+    if (!window.puter) throw new Error('The AI service did not load. Check your connection and refresh.');
+    const used = await this.plannerUsage();
+    const limit = planLimit();
+    if (used >= limit) throw new Error(premium() ? `You've used all ${limit} plans this month.` : `Free accounts get ${limit} plans a month. Go Premium for ${C.PREMIUM_PLANS_PER_MONTH}.`);
+    const u = await this.user();
+    let history = [];
+    if (chatId) {
+      const { data } = await sb.from('planner_messages').select('role, content').eq('chat_id', chatId).order('created_at', { ascending: false }).limit(8);
+      history = (data || []).reverse().map((m) => ({ role: m.role, content: m.content }));
     }
-    return data;
+    const home = S.profile?.home_country || 'unknown';
+    const today = new Date().toISOString().slice(0, 10);
+    const system = `You are SpeedCurrency's travel planner. Today is ${today}. The traveller's passport/home country is ${home}.
+Search the web for current facts: entry and visa rules for a ${home} passport, prices, places with what reviewers say, and recommended travel agents or official offices.
+Never invent prices, reviews, phone numbers or rules; if you can't find something, say so and name the official source to check. Keep prices in the currency the source uses. Be practical and short.
+Reply with JSON only (no markdown), in this shape:
+{"summary":"2-4 sentences","itinerary":[{"day":"Day 1","plan":"..."}],"documents":[{"item":"Visa / passport validity / yellow fever","status":"required|not required|check","detail":"...","source":1}],"agents":[{"name":"...","why":"...","contact":"website or phone if found","source":2}],"places":[{"name":"...","type":"stay|eat|see|car|other","price":"if found","reviews":"what reviewers say, short","source":3}],"costs":[{"item":"...","amount":"with currency","source":4}],"next_steps":["..."],"follow_up":"one short question or empty","sources":[{"n":1,"title":"page title","url":"https://..."}]}
+"source" is the number of the entry in "sources". Use [] for sections that don't apply.`;
+    const resp = await puter.ai.chat([{ role: 'system', content: system }, ...history, { role: 'user', content: message }], { model: C.PLANNER_MODEL || 'perplexity/sonar' });
+    let raw = resp?.message?.content ?? resp?.text ?? resp;
+    if (Array.isArray(raw)) raw = raw.map((p) => (typeof p === 'string' ? p : p?.text || '')).join('');
+    raw = String(raw || '');
+    let data;
+    try { const m = raw.match(/\{[\s\S]*\}/); data = JSON.parse(m ? m[0] : raw); }
+    catch { data = { summary: raw.replace(/\[\d+\]/g, '').slice(0, 2000) }; }
+    const cites = resp?.citations || resp?.message?.citations || resp?.search_results || [];
+    if ((!data.sources || !data.sources.length) && cites.length) data.sources = cites.map((c, i) => ({ n: i + 1, title: c.title || c.url || c, url: c.url || c }));
+    data.sources = (data.sources || []).filter((x) => /^https?:\/\//.test(x.url || '')).slice(0, 12);
+    data.model = C.PLANNER_MODEL || 'perplexity/sonar';
+    const content = String(data.summary || 'Here is what I found.');
+    if (!chatId) {
+      const { data: c, error } = await sb.from('planner_chats').insert({ title: message.slice(0, 60) }).select('id').single();
+      if (error) throw error;
+      chatId = c.id;
+    }
+    const { error: e2 } = await sb.from('planner_messages').insert([
+      { chat_id: chatId, user_id: u.id, role: 'user', content: message },
+      { chat_id: chatId, user_id: u.id, role: 'assistant', content, data },
+    ]);
+    if (e2) throw e2;
+    await sb.from('planner_chats').update({ updated_at: new Date().toISOString() }).eq('id', chatId);
+    return { chat_id: chatId, content, data, used: used + 1, limit };
   },
   async pay(plan) {
     if (DEMO) throw new Error('Payments work once the app is connected to DPO.');
@@ -535,6 +570,9 @@ async function Planner(main, r) {
   $('#ask').addEventListener('submit', async (e) => {
     e.preventDefault();
     const text = q.value.trim(); if (!text) return;
+    if (!DEMO && window.puter && !puter.auth.isSignedIn()) {
+      try { await puter.auth.signIn(); } catch { toast('Sign in to Puter (free) to use the planner'); return; }
+    }
     if (!chatId) msgs.innerHTML = '';
     msgs.insertAdjacentHTML('beforeend', `<div class="bubble-user">${esc(text)}</div><div class="thinking" id="think"><i></i><i></i><i></i> Researching current sources…</div>`);
     q.value = ''; $('#qsend').disabled = true;
@@ -870,7 +908,7 @@ async function Account(main) {
       <div class="card stack"><h2>Privacy</h2>
         <div class="row between"><span>Public journal<br><span class="small muted">Lets others see entries you mark public</span></span><button class="switch" role="switch" data-f="public_journal" aria-checked="${p.public_journal}" aria-label="Public journal"></button></div>
         <div class="row between"><span>Let people tag me<br><span class="small muted">Others can link you in “people I met”</span></span><button class="switch" role="switch" data-f="allow_tags" aria-checked="${p.allow_tags}" aria-label="Let people tag me"></button></div>
-        <p class="small muted" style="margin:0">Planner questions are answered by Google’s free Gemini AI using Tavily web search. Google may use free-tier questions to improve its products, so don’t include passport numbers or other private details.</p>
+        <p class="small muted" style="margin:0">The planner uses Perplexity’s Sonar search AI through Puter. The first time, you sign in with a free Puter account, which includes a free AI allowance. Don’t include passport numbers or other private details in questions.</p>
       </div>
     </section>
     <section class="stack">
