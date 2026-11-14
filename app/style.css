@@ -228,3 +228,25 @@ textarea.input{resize:vertical;min-height:110px}
 .place-row,.link-row{display:flex;justify-content:space-between;gap:10px;align-items:center;padding:9px 4px;border-bottom:1px solid #00000010;color:inherit;text-decoration:none}
 
 @media (prefers-reduced-motion:reduce){#main.enter>*,.reveal,.modal .panel,.badge.pulse,.nav a svg,.tabbar a svg{animation:none!important}.chip,.btn,.shortcut,.card,.place-row,.link-row{transition:none}}
+
+/* ---------- Namibia explorer ---------- */
+.regions{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px;align-items:start}
+.region summary{display:flex;justify-content:space-between;align-items:center;gap:10px;cursor:pointer;list-style:none}
+.region summary::-webkit-details-marker{display:none}
+.region[open]{box-shadow:0 12px 30px rgba(21,23,26,.08)}
+.region[open] summary .badge{background:var(--accent);color:var(--ink)}
+.region .chips{animation:rise .35s var(--ease) both}
+.chip.park{background:#E6F2E8}
+a.chip{text-decoration:none;color:var(--ink)}
+.town-hero{display:grid;gap:10px;margin-top:10px;padding:22px;border-radius:var(--r-lg);background:linear-gradient(135deg,#15171A 0%,#2A2E33 60%,#B83A0E 140%);color:var(--on-dark)}
+.town-hero h1{color:var(--on-dark);font-size:clamp(32px,6vw,52px)}
+.town-hero .eyebrow{color:var(--accent-on-dark)}
+.town-hero .btn.ghost{background:transparent;color:var(--on-dark);border-color:#ffffff44}
+.place-card{display:grid;gap:6px;padding:12px 2px;border-bottom:1px solid #00000010}
+
+/* calm cross-fade between screens where supported */
+@view-transition{navigation:auto}
+::view-transition-old(root),::view-transition-new(root){animation-duration:.25s}
+
+/* foldables: use both screens side by side */
+@media (horizontal-viewport-segments:2){.paper,.hero,.grid.g2{grid-template-columns:env(viewport-segment-width 0 0,1fr) env(viewport-segment-width 1 0,1fr);column-gap:calc(env(viewport-segment-left 1 0,0px) - env(viewport-segment-right 0 0,0px))}}

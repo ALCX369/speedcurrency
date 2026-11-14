@@ -403,7 +403,7 @@ function activateAds() {
 }
 
 /* ---------- navigation ---------- */
-const NAV = [['', 'Home', 'home'], ['planner', 'Assistant', 'planner'], ['trips', 'Trips', 'trips'], ['map', 'Map', 'map'], ['journal', 'Journal', 'journal'], ['updates', 'Updates', 'news'], ['explore', 'Explore', 'explore'], ['messages', 'Chats', 'chat'], ['account', 'Account', 'account']];
+const NAV = [['', 'Home', 'home'], ['planner', 'Assistant', 'planner'], ['trips', 'Trips', 'trips'], ['map', 'Map', 'map'], ['journal', 'Journal', 'journal'], ['explore-na', 'Namibia', 'map'], ['updates', 'Updates', 'news'], ['explore', 'Explore', 'explore'], ['messages', 'Chats', 'chat'], ['account', 'Account', 'account']];
 const TABS = ['', 'planner', 'updates', 'journal', 'messages', 'account'];
 function renderNav(active) {
   const link = ([r, l, ic]) => `<a href="#/${r}" ${active === r ? 'aria-current="page"' : ''}>${icon(ic)}<span>${l}</span></a>`;
@@ -425,7 +425,7 @@ async function render() {
   if (!S.user && r.name !== 'auth') { location.hash = '#/auth'; return; }
   if (S.user && r.name === 'auth') { location.hash = '#/'; return; }
   renderNav(r.name === 'auth' ? null : r.name);
-  const views = { '': Home, planner: Planner, trips: Trips, map: MapView, journal: Journal, album: Album, explore: Explore, messages: Messages, account: Account, admin: Admin, updates: Updates, auth: Auth };
+  const views = { '': Home, planner: Planner, trips: Trips, map: MapView, journal: Journal, album: Album, explore: Explore, messages: Messages, account: Account, admin: Admin, updates: Updates, 'explore-na': Namibia, auth: Auth };
   const view = views[r.name] || Home;
   try { cleanup?.(); } catch { /* ignore */ } cleanup = null;
   main.innerHTML = '<div class="skeleton"><span></span><span></span><span></span></div>';
@@ -571,7 +571,7 @@ async function Home(main) {
       <div class="grid g2">
         <a class="shortcut" href="#/journal?new=1">${icon('journal')}New journal</a>
         <a class="shortcut" href="#/map">${icon('map')}My map</a>
-        <a class="shortcut" href="#/album">${icon('album')}Album</a>
+        <a class="shortcut" href="#/explore-na">${icon('map')}Explore Namibia</a>
         <a class="shortcut" href="#/updates">${icon('news')}Updates</a>
       </div>
     </section>
@@ -779,7 +779,7 @@ async function Trips(main, r) {
     });
   });
   $('#newtrip').addEventListener('click', open);
-  if (r.q.get('new')) open();
+  if (r.q.get('new')) { open(); if (r.q.get('dest')) { const d = $('#td'); if (d) d.value = r.q.get('dest').slice(0, 120); } }
 }
 
 async function TripDetail(main, id) {
@@ -1411,8 +1411,9 @@ const NEARBY = {
 const ago = (iso) => { const m = Math.round((Date.now() - Date.parse(iso)) / 6e4); return m < 60 ? `${Math.max(m, 1)} min ago` : m < 1440 ? `${Math.round(m / 60)} h ago` : m < 43200 ? `${Math.round(m / 1440)} d ago` : fmtDate(iso); };
 const gmaps = (q) => `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(q)}`;
 async function geocode(q) { const l = await placeSearch(q); if (!l.length) throw new Error('Place not found'); return l[0]; }
-async function nearby(lat, lng, kind) {
-  const parts = NEARBY[kind][1].split(';').map((x) => `${x}(around:6000,${lat},${lng});`).join('');
+async function nearby(lat, lng, kind, radius = 6000) {
+  const q = (NEARBY[kind] || EXPLORE_CATS[kind])[1];
+  const parts = q.split(';').map((x) => `${x}(around:${radius},${lat},${lng});`).join('');
   const r = await fetch('https://overpass-api.de/api/interpreter', { method: 'POST', body: 'data=' + encodeURIComponent(`[out:json][timeout:15];(${parts});out center 40;`), signal: AbortSignal.timeout(16000) });
   if (!r.ok) throw new Error('Map data is busy, try again in a moment');
   const j = await r.json();
@@ -1422,7 +1423,8 @@ async function nearby(lat, lng, kind) {
     const dist = 6371 * 2 * Math.asin(Math.sqrt(Math.sin(rad(la - lat) / 2) ** 2 + Math.cos(rad(lat)) * Math.cos(rad(la)) * Math.sin(rad(lo - lng) / 2) ** 2));
     const t = e.tags;
     return { name: t.name, kind: (t.cuisine || t.tourism || t.amenity || t.shop || '').replace(/_/g, ' ').replace(/;/g, ', '), lat: la, lng: lo, dist,
-      phone: t.phone || t['contact:phone'] || '', web: /^https?:\/\//.test(t.website || '') ? t.website : '', hours: t.opening_hours || '' };
+      phone: t.phone || t['contact:phone'] || t['contact:mobile'] || '', web: /^https?:\/\//.test(t.website || t['contact:website'] || '') ? (t.website || t['contact:website']) : '', hours: t.opening_hours || '',
+      street: [t['addr:street'], t['addr:housenumber']].filter(Boolean).join(' '), brand: t.brand || '' };
   }).sort((a, b) => a.dist - b.dist).slice(0, 24);
 }
 async function Updates(main, r) {
@@ -1514,6 +1516,116 @@ async function Updates(main, r) {
   go();
   const timer = setInterval(() => { if (document.visibilityState === 'visible') loadNews(true); }, 10 * 60 * 1000);
   cleanup = () => clearInterval(timer);
+}
+
+/* =========================================================
+   NAMIBIA EXPLORER – regions → towns → live places, news, events, contacts
+   ========================================================= */
+const NA_REGIONS = [
+  ['Khomas', 'Capital region', ['Windhoek'], ['Daan Viljoen Game Reserve']],
+  ['Erongo', 'Coast & desert', ['Swakopmund', 'Walvis Bay', 'Henties Bay', 'Omaruru', 'Usakos', 'Karibib', 'Arandis', 'Uis'], ['Namib-Naukluft Park (north)', 'Cape Cross Seal Reserve', 'Spitzkoppe', 'Brandberg']],
+  ['Oshana', 'The north’s busy hub', ['Oshakati', 'Ondangwa', 'Ongwediva'], ['Lake Oponono']],
+  ['Omusati', 'Waterfalls & makalani palms', ['Outapi', 'Ruacana', 'Oshikuku', 'Okahao', 'Tsandi'], ['Ruacana Falls', 'Ombalantu Baobab Tree']],
+  ['Ohangwena', 'Border trade', ['Eenhana', 'Helao Nafidi', 'Okongo'], []],
+  ['Oshikoto', 'Gateway to Etosha', ['Omuthiya', 'Tsumeb', 'Oniipa'], ['Etosha National Park (east)', 'Lake Otjikoto', 'King Nehale Conservancy']],
+  ['Kunene', 'Wild north-west', ['Opuwo', 'Outjo', 'Khorixas', 'Kamanjab', 'Sesfontein'], ['Etosha National Park (west)', 'Skeleton Coast Park', 'Twyfelfontein', 'Epupa Falls']],
+  ['Otjozondjupa', 'Plateaus & farmland', ['Otjiwarongo', 'Grootfontein', 'Okahandja', 'Otavi', 'Okakarara', 'Tsumkwe'], ['Waterberg Plateau Park', 'Hoba Meteorite']],
+  ['Omaheke', 'Kalahari cattle country', ['Gobabis', 'Witvlei', 'Leonardville'], []],
+  ['Hardap', 'Dunes & the Kalahari', ['Mariental', 'Rehoboth', 'Maltahöhe', 'Aranos', 'Gibeon'], ['Sossusvlei', 'Hardap Dam', 'Namib-Naukluft Park (south)']],
+  ['//Karas', 'Canyons & diamond coast', ['Keetmanshoop', 'Lüderitz', 'Oranjemund', 'Karasburg', 'Aus', 'Bethanie'], ['Fish River Canyon', 'Kolmanskop', 'Quiver Tree Forest']],
+  ['Kavango East', 'River life', ['Rundu', 'Divundu', 'Ndiyona'], ['Bwabwata National Park', 'Popa Falls', 'Khaudum National Park']],
+  ['Kavango West', 'Okavango riverbank', ['Nkurenkuru', 'Mpungu'], []],
+  ['Zambezi', 'Rivers & wildlife', ['Katima Mulilo', 'Bukalo'], ['Nkasa Rupara National Park', 'Mudumu National Park']],
+];
+const EXPLORE_CATS = {
+  food: ['Restaurants & cafés', 'nwr["amenity"~"^(restaurant|cafe|bar|pub)$"]'],
+  fast: ['Fast food (KFC & more)', 'nwr["amenity"="fast_food"]'],
+  shops: ['Supermarkets & malls', 'nwr["shop"~"^(supermarket|mall|convenience|department_store)$"]'],
+  stay: ['Stays & lodges', 'nwr["tourism"~"^(hotel|guest_house|lodge|camp_site|chalet|hostel|motel)$"]'],
+  fun: ['Fun, sport & sights', 'nwr["tourism"~"^(attraction|viewpoint|museum|gallery|zoo|theme_park)$"];nwr["leisure"~"^(stadium|sports_centre|park|water_park|golf_course|nature_reserve)$"]'],
+  fuel: ['Fuel & garages', 'nwr["amenity"="fuel"];nwr["shop"~"^(car_repair|tyres|car_parts)$"]'],
+  money: ['Banks & ATMs', 'nwr["amenity"~"^(atm|bank|bureau_de_change)$"]'],
+  health: ['Health', 'nwr["amenity"~"^(pharmacy|clinic|hospital|doctors)$"]'],
+  gov: ['Home Affairs & police', 'nwr["name"~"Home Affairs|Civic Affairs|Immigration",i];nwr["amenity"="police"]'],
+};
+const HOME_AFFAIRS = `<div class="card stack reveal"><h3>${'🛂'} Home Affairs (MHAISS)</h3>
+  <p class="small muted" style="margin:0">Ministry of Home Affairs, Immigration, Safety and Security. IDs, passports, birth certificates, visas and permits.</p>
+  <div class="list">
+    <div class="row between"><span class="small">Head office</span><span class="small"><b>Cohen Building, cnr Kasino St & Independence Ave, Windhoek</b></span></div>
+    <div class="row between"><span class="small">Switchboard</span><a class="small" href="tel:+264612922111"><b>+264 61 292 2111</b></a></div>
+    <div class="row between"><span class="small">Public relations</span><a class="small" href="tel:+264819510064"><b>+264 81 951 0064</b></a></div>
+    <a class="link-row" href="https://eservices.mhaiss.gov.na" target="_blank" rel="noopener noreferrer"><span><b>Apply online</b><br><span class="small muted">Passports and short-term work visas</span></span>↗</a>
+  </div>
+  <span class="small muted">Regional offices are listed under “Home Affairs & police” for each town. Confirm opening hours before you go.</span></div>`;
+async function Namibia(main, r) {
+  const town = r.id ? decodeURIComponent(r.id) : '';
+  if (!town) {
+    main.innerHTML = `<div class="page-head reveal"><div><span class="eyebrow">Explore</span><h1>Namibia, region by region</h1><p>Tap a region, then a town: places with contacts, live news, events and offices.</p></div></div>
+      <div class="regions">${NA_REGIONS.map(([name, tag, towns, parks], i) => `<details class="card region reveal" style="--i:${i}"><summary><span><b>${esc(name)}</b><br><span class="small muted">${esc(tag)}</span></span><span class="badge">${towns.length} town${towns.length === 1 ? "" : "s"}</span></summary>
+        <div class="chips" style="margin-top:10px">${towns.map((t) => `<a class="chip" href="#/explore-na/${encodeURIComponent(t)}">${esc(t)}</a>`).join('')}</div>
+        ${parks.length ? `<div class="small muted" style="margin-top:10px">Reserves & highlights</div><div class="chips">${parks.map((pk) => `<a class="chip park" href="#/explore-na/${encodeURIComponent(pk)}">🌿 ${esc(pk)}</a>`).join('')}</div>` : ''}</details>`).join('')}</div>
+      <div style="margin-top:16px">${HOME_AFFAIRS}</div>`;
+    return;
+  }
+  const region = NA_REGIONS.find(([, , towns, parks]) => towns.includes(town) || parks.includes(town));
+  const st = { cat: r.q.get('cat') || 'food', geo: null };
+  main.innerHTML = `<a class="small" href="#/explore-na">← All regions</a>
+    <div class="town-hero reveal"><span class="eyebrow">${esc(region ? region[0] + ' region' : 'Namibia')}</span><h1>${esc(town)}</h1>
+      <div class="row wrap"><a class="btn primary" href="#/planner?q=${encodeURIComponent(`Plan a visit to ${town}, Namibia: best things to do, where to stay and eat with prices and reviews, events this month, and getting there.`)}">${icon('planner', 18)} Plan with AI</a>
+        <a class="btn ghost" href="#/trips?new=1&dest=${encodeURIComponent(town + ', Namibia')}">${icon('plus', 18)} Save as trip</a>
+        <a class="btn ghost" href="${esc(gmaps(town + ', Namibia'))}" target="_blank" rel="noopener noreferrer">${icon('map', 18)} Google Maps</a></div></div>
+    <div class="paper" style="margin-top:14px">
+      <section class="stack">
+        <div class="card stack reveal"><div class="chips" id="xcat">${Object.entries(EXPLORE_CATS).map(([k, [l]]) => `<button class="chip" data-cat="${k}">${l}</button>`).join('')}</div>
+          <div id="xplaces" class="list"></div>
+          <span class="small muted">From OpenStreetMap. Tap a place for Google reviews, photos and directions; call or visit the website to reserve.</span></div>
+        <div class="card stack reveal"><h2>${icon('news', 20)} Latest from ${esc(town)}</h2><div id="xnews"></div><a class="small" href="#/updates?place=${encodeURIComponent(town)}">Open the full newspaper →</a></div>
+      </section>
+      <aside class="stack">
+        <div class="card stack reveal"><h3>🎉 Events, shows & sport</h3><div id="xevents"></div>
+          <div class="list">
+            <a class="link-row" target="_blank" rel="noopener noreferrer" href="https://www.google.com/search?q=${encodeURIComponent('events this month ' + town + ' Namibia')}"><span><b>Events this month</b><br><span class="small muted">Google search</span></span>↗</a>
+            <a class="link-row" target="_blank" rel="noopener noreferrer" href="https://www.google.com/search?q=${encodeURIComponent('concerts shows tickets ' + town + ' Namibia')}"><span><b>Concerts & shows</b><br><span class="small muted">Tickets and line-ups</span></span>↗</a>
+            <a class="link-row" target="_blank" rel="noopener noreferrer" href="https://www.facebook.com/search/events?q=${encodeURIComponent(town)}"><span><b>Facebook events</b><br><span class="small muted">Local happenings</span></span>↗</a>
+            <a class="link-row" target="_blank" rel="noopener noreferrer" href="https://www.youtube.com/results?search_query=${encodeURIComponent(town + ' Namibia')}"><span><b>Videos</b><br><span class="small muted">See it before you go</span></span>↗</a>
+          </div></div>
+        ${HOME_AFFAIRS}
+        ${adBlock()}
+      </aside>
+    </div>`;
+  const mark = () => $$('#xcat .chip').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.cat === st.cat)));
+  const placeRow = (x, i) => `<div class="place-card reveal" style="--i:${i}">
+      <div class="row between" style="align-items:flex-start"><span><b>${esc(x.name)}</b><br><span class="small muted">${esc(x.kind)}${x.street ? ' · ' + esc(x.street) : ''}</span></span><span class="small muted">${x.dist < 1 ? Math.round(x.dist * 1000) + ' m' : x.dist.toFixed(1) + ' km'}</span></div>
+      ${x.hours ? `<span class="small">🕒 ${esc(x.hours.slice(0, 60))}</span>` : ''}
+      <div class="row wrap" style="gap:6px">
+        <a class="chip" href="${esc(gmaps(`${x.name} ${x.lat},${x.lng}`))}" target="_blank" rel="noopener noreferrer">⭐ Reviews & directions</a>
+        ${x.phone ? `<a class="chip" href="tel:${esc(x.phone.split(';')[0].replace(/[^+\d]/g, ''))}">📞 Call</a>` : ''}
+        ${x.web ? `<a class="chip" href="${esc(safeUrl(x.web))}" target="_blank" rel="noopener noreferrer">🌐 Website / book</a>` : ''}
+      </div></div>`;
+  const loadPlaces = async () => {
+    const box = $('#xplaces'); if (!box) return;
+    box.innerHTML = '<div class="skeleton"><span></span><span></span><span></span></div>';
+    try {
+      if (!st.geo) st.geo = await geocode(town.replace(/\s*\(.*\)$/, '') + ', Namibia');
+      const list = await nearby(st.geo.lat, st.geo.lng, st.cat, /Park|Canyon|Reserve|Sossusvlei|Falls/.test(town) ? 25000 : 8000);
+      if (!$('#xplaces')) return;
+      box.innerHTML = list.length ? list.map(placeRow).join('')
+        : `<p class="small muted">Nothing mapped here yet. <a href="${esc(gmaps(EXPLORE_CATS[st.cat][0] + ' near ' + town + ', Namibia'))}" target="_blank" rel="noopener">Search Google Maps</a></p>`;
+    } catch (e) { if ($('#xplaces')) box.innerHTML = `<p class="small muted">${esc(e.message)}. <a href="${esc(gmaps(EXPLORE_CATS[st.cat][0] + ' near ' + town))}" target="_blank" rel="noopener">Open Google Maps</a></p>`; }
+  };
+  const loadNews = async (id, topic, days, max) => {
+    const box = $(id); if (!box) return;
+    box.innerHTML = '<div class="skeleton"><span></span><span></span></div>';
+    try {
+      const res = await api.news({ place: town.replace(/\s*\(.*\)$/, ''), days, topic, source: 'all', country: 'NA' });
+      if (!$(id)) return;
+      const items = (res.items || []).slice(0, max);
+      box.innerHTML = items.length ? items.map((x, i) => `<article class="story reveal" style="--i:${i}"><span class="kicker">${esc(x.source || 'News')} · ${ago(x.published)}</span><a href="${esc(x.link)}" target="_blank" rel="noopener noreferrer"><h3>${esc(x.title)}</h3></a></article>`).join('')
+        : `<p class="small muted">Nothing in the last ${days} days.</p>`;
+    } catch (e) { if ($(id)) box.innerHTML = `<p class="small muted">${esc(e.message)}</p>`; }
+  };
+  $$('#xcat .chip').forEach((b) => b.onclick = () => { st.cat = b.dataset.cat; mark(); loadPlaces(); });
+  mark(); loadPlaces(); loadNews('#xnews', 'all', 30, 6); loadNews('#xevents', 'events', 60, 4);
 }
 
 /* ---------- EFT payments ---------- */
