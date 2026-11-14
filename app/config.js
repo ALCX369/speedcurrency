@@ -24,6 +24,6 @@ window.SC_CONFIG = {
     BRANCH_CODE: "280678",
     SWIFT: "FIRNNANX",
   },
-  PAYMENTS_EMAIL: "cycleswithgrace@gmail.com",
+  PAYMENTS_EMAIL: "gmega.url@gmail.com",
   SHOP_URL: "https://alcx369.myshopify.com/collections/christmas-gift-shop",
 };

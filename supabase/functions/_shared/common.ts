@@ -27,5 +27,5 @@ export async function currentUser(req: Request): Promise<User | null> {
 }
 
 export function isPremium(p: { plan?: string; premium_until?: string | null } | null) {
-  return !!p && p.plan === "premium" && !!p.premium_until && new Date(p.premium_until) > new Date();
+  return !!p && (p.plan === "premium" || p.plan === "pro") && !!p.premium_until && new Date(p.premium_until) > new Date();
 }

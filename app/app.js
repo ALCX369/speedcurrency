@@ -39,6 +39,7 @@ const I = {
   shield: '<path d="M12 3l8 3v6c0 4.5-3.4 8.3-8 9-4.6-.7-8-4.5-8-9V6z"/><path d="M9 12l2 2 4-4"/>',
   gift: '<rect x="3" y="8" width="18" height="13" rx="2"/><path d="M12 8v13M3 12h18M12 8c-2-4-6-4-6-1s6 1 6 1 6 2 6-1-4-3-6 1"/>',
   token: '<circle cx="12" cy="12" r="9"/><path d="M12 7v10M9 9.5h4.5a1.8 1.8 0 0 1 0 3.5h-3a1.8 1.8 0 0 0 0 3.5H15"/>',
+  news: '<path d="M4 5h13v14H6a2 2 0 0 1-2-2z"/><path d="M17 9h3v8a2 2 0 0 1-2 2"/><path d="M7 9h7M7 12h7M7 15h4"/>',
   passport: '<rect x="5" y="3" width="14" height="18" rx="2"/><circle cx="12" cy="10" r="3"/><path d="M9 16h6"/>',
 };
 const icon = (n, s = 20) => `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${I[n] || ''}</svg>`;
@@ -286,6 +287,27 @@ const api = {
     return data;
   },
   async proofUrl(path) { const { data } = await sb.storage.from('proofs').createSignedUrl(path, 600); return data?.signedUrl; },
+  async news(opts) {
+    if (DEMO) throw new Error('Updates work once you are signed in online.');
+    const { data, error } = await sb.functions.invoke('news', { body: opts });
+    if (error) { let m = 'News could not load'; try { m = (await error.context.json()).error || m; } catch { /* keep */ } throw new Error(m); }
+    return data;
+  },
+  async deleteAccount() {
+    const { data, error } = await sb.functions.invoke('account', { body: { action: 'delete', confirm: 'DELETE' } });
+    if (error) { let m = 'Could not delete the account'; try { m = (await error.context.json()).error || m; } catch { /* keep */ } throw new Error(m); }
+    return data;
+  },
+  async exportData() {
+    if (DEMO) return DS.load();
+    const me = S.user.id; const out = { exported_at: new Date().toISOString(), email: S.user.email };
+    const own = (t, col = 'user_id') => sb.from(t).select('*').eq(col, me).limit(5000).then((r) => r.data || []);
+    const [profile, trips, journal, pins, chats, msgs, pays, ledger, comments, sent] = await Promise.all([
+      sb.from('profiles').select('*').eq('id', me).single().then((r) => r.data), own('trips'), own('journal_entries'), own('pins'),
+      own('planner_chats'), own('planner_messages'), own('payments'), own('token_ledger'), own('journal_comments'), own('messages', 'sender_id')]);
+    Object.assign(out, { profile, trips, journal_entries: journal, pins, assistant_chats: chats, assistant_messages: msgs, payments: pays, tokens: ledger, comments, messages_sent: sent });
+    return out;
+  },
   async findTraveller(handle) {
     if (DEMO) return null;
     const { data } = await sb.rpc('find_traveller', { handle: handle.replace(/^@/, '') });
@@ -381,8 +403,8 @@ function activateAds() {
 }
 
 /* ---------- navigation ---------- */
-const NAV = [['', 'Home', 'home'], ['planner', 'Assistant', 'planner'], ['trips', 'Trips', 'trips'], ['map', 'Map', 'map'], ['journal', 'Journal', 'journal'], ['explore', 'Explore', 'explore'], ['messages', 'Chats', 'chat'], ['account', 'Account', 'account']];
-const TABS = ['', 'planner', 'journal', 'messages', 'account'];
+const NAV = [['', 'Home', 'home'], ['planner', 'Assistant', 'planner'], ['trips', 'Trips', 'trips'], ['map', 'Map', 'map'], ['journal', 'Journal', 'journal'], ['updates', 'Updates', 'news'], ['explore', 'Explore', 'explore'], ['messages', 'Chats', 'chat'], ['account', 'Account', 'account']];
+const TABS = ['', 'planner', 'updates', 'journal', 'messages', 'account'];
 function renderNav(active) {
   const link = ([r, l, ic]) => `<a href="#/${r}" ${active === r ? 'aria-current="page"' : ''}>${icon(ic)}<span>${l}</span></a>`;
   $('#nav').innerHTML = S.user ? [...NAV, ...(S.isAdmin ? [['admin', 'Admin', 'shield']] : [])].map(link).join('') : '';
@@ -403,11 +425,12 @@ async function render() {
   if (!S.user && r.name !== 'auth') { location.hash = '#/auth'; return; }
   if (S.user && r.name === 'auth') { location.hash = '#/'; return; }
   renderNav(r.name === 'auth' ? null : r.name);
-  const views = { '': Home, planner: Planner, trips: Trips, map: MapView, journal: Journal, album: Album, explore: Explore, messages: Messages, account: Account, admin: Admin, auth: Auth };
+  const views = { '': Home, planner: Planner, trips: Trips, map: MapView, journal: Journal, album: Album, explore: Explore, messages: Messages, account: Account, admin: Admin, updates: Updates, auth: Auth };
   const view = views[r.name] || Home;
   try { cleanup?.(); } catch { /* ignore */ } cleanup = null;
   main.innerHTML = '<div class="skeleton"><span></span><span></span><span></span></div>';
   try { await view(main, r); } catch (e) { console.error(e); main.innerHTML = `<div class="notice">Something went wrong: ${esc(e.message)}</div>`; }
+  main.classList.remove('enter'); void main.offsetWidth; main.classList.add('enter');
   activateAds();
   main.focus({ preventScroll: true });
   window.scrollTo(0, 0);
@@ -469,6 +492,7 @@ async function Auth(main) {
         ${(() => { try { return localStorage.getItem('sc_ref') ? `<div class="notice">${icon('gift', 16)} You were invited. You'll get <b>40 tokens</b> when you join.</div>` : ''; } catch { return ''; } })()}
         <div class="field"><label for="aemail">Email</label><input class="input" id="aemail" type="email" autocomplete="email" required></div>
         <div class="field"><label for="apass">Password</label><input class="input" id="apass" type="password" autocomplete="new-password" minlength="8" required></div>
+        <label class="row small" id="agreef" style="align-items:flex-start;gap:8px"><input type="checkbox" id="agree" style="margin-top:3px"> <span>I'm 18 or older and I agree to the <a href="../terms.html" target="_blank" rel="noopener">Terms of Use</a> and <a href="../privacy.html" target="_blank" rel="noopener">Privacy Policy</a>.</span></label>
         <p class="small muted" id="countrynote" style="margin:0">${icon('lock', 14)} Your home country is set from where you create the account and can’t be changed later. It decides which travel documents the planner checks for you.</p>
         <button class="btn primary block" id="asubmit">Create account</button>
         <button type="button" class="btn ghost small" id="aforgot" hidden>Forgot password?</button>
@@ -479,7 +503,7 @@ async function Auth(main) {
   const setMode = (m) => {
     mode = m;
     $$('[data-mode]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.mode === m)));
-    $('#namef').hidden = m === 'in'; $('#countrynote').hidden = m === 'in'; $('#aforgot').hidden = m === 'up';
+    $('#namef').hidden = m === 'in'; $('#countrynote').hidden = m === 'in'; $('#agreef').hidden = m === 'in'; $('#aforgot').hidden = m === 'up';
     $('#apass').autocomplete = m === 'in' ? 'current-password' : 'new-password';
     $('#asubmit').textContent = m === 'in' ? 'Sign in' : 'Create account';
   };
@@ -489,6 +513,7 @@ async function Auth(main) {
   });
   $('#authf').addEventListener('submit', async (e) => {
     e.preventDefault();
+    if (mode === 'up' && !$('#agree').checked) { toast('Please confirm you are 18+ and agree to the Terms and Privacy Policy'); $('#agree').focus(); return; }
     const btn = $('#asubmit'); btn.disabled = true;
     try {
       if (mode === 'up') {
@@ -538,15 +563,16 @@ async function Home(main) {
     </section>
     <section class="stack">
       ${next ? `<a class="card stack" href="#/trips/${next.id}" style="text-decoration:none;color:inherit">
-          <span class="eyebrow">Next trip</span><h2>${esc(next.destination)}</h2>
+          <div class="row between"><span class="eyebrow">Next trip</span>${countdown(next.start_date)}</div><h2>${esc(next.destination)}</h2>
           <span class="muted">${next.start_date ? fmtDate(next.start_date) : 'Dates not set'}${next.end_date ? ' – ' + fmtDate(next.end_date) : ''}</span>
-          ${next.reminder?.on ? `<span class="badge ok">Reminder on · ${esc(next.reminder.place || '')}</span>` : ''}</a>`
+          ${next.reminder?.on ? `<span class="badge ok">Reminder on · ${esc(next.reminder.place || '')}</span>` : ''}
+          <span class="small" style="color:var(--accent-dark);font-weight:700">${icon('news', 14)} Latest news for ${esc(next.destination)} →</span></a>`
         : `<div class="card stack"><span class="eyebrow">Next trip</span><h2>No trip yet</h2><p class="muted" style="margin:0">Ask the planner, then save the plan as a trip.</p><a class="btn small" href="#/trips?new=1">Add a trip</a></div>`}
       <div class="grid g2">
         <a class="shortcut" href="#/journal?new=1">${icon('journal')}New journal</a>
         <a class="shortcut" href="#/map">${icon('map')}My map</a>
         <a class="shortcut" href="#/album">${icon('album')}Album</a>
-        <a class="shortcut" href="#/explore">${icon('explore')}Explore</a>
+        <a class="shortcut" href="#/updates">${icon('news')}Updates</a>
       </div>
     </section>
   </div>
@@ -1155,6 +1181,10 @@ async function Account(main, r) {
         <span class="small muted">Pay by EFT into our FNB Namibia account. Your plan is switched on as soon as we confirm your payment.</span>
         <div id="mypays"></div>
       </div>
+      <div class="card stack"><h2>Your data</h2>
+        <p class="small muted" style="margin:0">Read our <a href="../privacy.html" target="_blank" rel="noopener">Privacy Policy</a> and <a href="../terms.html" target="_blank" rel="noopener">Terms of Use</a>. Questions: <a href="mailto:gmega.url@gmail.com">gmega.url@gmail.com</a>.</p>
+        <div class="row wrap"><button class="btn small ghost" id="export">Download my data</button><button class="btn small ghost" id="delacct" style="color:var(--accent-dark)">Delete account</button></div>
+      </div>
       ${adBlock()}
     </section>
   </div>`;
@@ -1185,6 +1215,28 @@ async function Account(main, r) {
     $$('[data-open]', box).forEach((b) => b.onclick = () => eftFlow(list.find((x) => x.id === b.dataset.open), myPays));
   };
   myPays();
+  $('#export').onclick = async (e) => {
+    e.target.disabled = true;
+    try {
+      const data = await api.exportData();
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }));
+      a.download = `speedcurrency-data-${new Date().toISOString().slice(0, 10)}.json`; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+    } catch (err) { toast(err.message); }
+    e.target.disabled = false;
+  };
+  $('#delacct').onclick = () => modal(`<div class="stack"><h2>Delete your account?</h2>
+      <p class="muted" style="margin:0">This permanently deletes your profile, trips, journal, photos, chats, tokens and assistant history. Payment records are kept only as tax law requires. This can't be undone.</p>
+      <div class="field"><label for="delc">Type <b>DELETE</b> to confirm</label><input class="input" id="delc" autocomplete="off"></div>
+      <div class="row"><button class="btn primary" id="delgo" type="button">Delete forever</button><button class="btn ghost" type="button" data-close>Cancel</button></div></div>`, (m) => {
+    $('#delgo', m).onclick = async (e) => {
+      if ($('#delc', m).value.trim() !== 'DELETE') { toast('Type DELETE to confirm'); return; }
+      if (DEMO) { localStorage.removeItem('sc_demo'); location.hash = '#/auth'; location.reload(); return; }
+      e.target.disabled = true;
+      try { await api.deleteAccount(); await sb.auth.signOut().catch(() => {}); CACHE.clear(); S.user = null; S.profile = null; toast('Your account was deleted'); location.hash = '#/auth'; render(); }
+      catch (err) { toast(err.message); e.target.disabled = false; }
+    };
+  });
   $('#share').onclick = async () => {
     const text = `Join me on SpeedCurrency: plan trips with a Claude-powered assistant, journal your travels and convert money. ${invite}`;
     if (navigator.share) { try { await navigator.share({ title: 'SpeedCurrency', text, url: invite }); } catch { /* cancelled */ } }
@@ -1333,6 +1385,137 @@ async function mfaGate() {
     });
   });
 }
+/* ---------- trip countdown ---------- */
+function countdown(date) {
+  if (!date) return '';
+  const d = Math.ceil((new Date(date + 'T00:00:00') - new Date()) / 864e5);
+  if (d < 0) return '<span class="badge ok">On the road</span>';
+  if (d === 0) return '<span class="badge pulse">Today!</span>';
+  return `<span class="badge countdown"><b>${d}</b> day${d === 1 ? '' : 's'} to go</span>`;
+}
+
+/* =========================================================
+   UPDATES – live newspaper + nearby places for any location
+   ========================================================= */
+const NEWS_TOPICS = [['all', 'Top stories'], ['travel', 'Travel'], ['events', 'Events'], ['sport', 'Sport'], ['business', 'Money & business'], ['food', 'Food'], ['roads', 'Roads & flights'], ['weather', 'Weather']];
+const NEWS_RANGES = [[1, 'Today'], [7, 'This week'], [30, 'This month'], [365, 'This year']];
+const QUICK_PLACES = ['Namibia', 'Windhoek', 'Ruacana', 'Swakopmund', 'Etosha', 'Ondangwa', 'Sossusvlei', 'Rundu', 'Katima Mulilo', 'Lüderitz'];
+const NEARBY = {
+  food: ['Restaurants', 'nwr["amenity"~"^(restaurant|cafe|fast_food|bar|pub)$"]'],
+  stay: ['Stays', 'nwr["tourism"~"^(hotel|guest_house|lodge|camp_site|chalet|hostel|motel)$"]'],
+  sights: ['Sights', 'nwr["tourism"~"^(attraction|viewpoint|museum|gallery|zoo)$"]'],
+  fuel: ['Fuel & garages', 'nwr["amenity"="fuel"];nwr["shop"~"^(car_repair|tyres)$"]'],
+  money: ['ATMs & banks', 'nwr["amenity"~"^(atm|bank|bureau_de_change)$"]'],
+  health: ['Pharmacy & clinic', 'nwr["amenity"~"^(pharmacy|clinic|hospital)$"]'],
+};
+const ago = (iso) => { const m = Math.round((Date.now() - Date.parse(iso)) / 6e4); return m < 60 ? `${Math.max(m, 1)} min ago` : m < 1440 ? `${Math.round(m / 60)} h ago` : m < 43200 ? `${Math.round(m / 1440)} d ago` : fmtDate(iso); };
+const gmaps = (q) => `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(q)}`;
+async function geocode(q) { const l = await placeSearch(q); if (!l.length) throw new Error('Place not found'); return l[0]; }
+async function nearby(lat, lng, kind) {
+  const parts = NEARBY[kind][1].split(';').map((x) => `${x}(around:6000,${lat},${lng});`).join('');
+  const r = await fetch('https://overpass-api.de/api/interpreter', { method: 'POST', body: 'data=' + encodeURIComponent(`[out:json][timeout:15];(${parts});out center 40;`), signal: AbortSignal.timeout(16000) });
+  if (!r.ok) throw new Error('Map data is busy, try again in a moment');
+  const j = await r.json();
+  const rad = (x) => x * Math.PI / 180;
+  return (j.elements || []).filter((e) => e.tags?.name).map((e) => {
+    const la = e.lat ?? e.center?.lat, lo = e.lon ?? e.center?.lon;
+    const dist = 6371 * 2 * Math.asin(Math.sqrt(Math.sin(rad(la - lat) / 2) ** 2 + Math.cos(rad(lat)) * Math.cos(rad(la)) * Math.sin(rad(lo - lng) / 2) ** 2));
+    const t = e.tags;
+    return { name: t.name, kind: (t.cuisine || t.tourism || t.amenity || t.shop || '').replace(/_/g, ' ').replace(/;/g, ', '), lat: la, lng: lo, dist,
+      phone: t.phone || t['contact:phone'] || '', web: /^https?:\/\//.test(t.website || '') ? t.website : '', hours: t.opening_hours || '' };
+  }).sort((a, b) => a.dist - b.dist).slice(0, 24);
+}
+async function Updates(main, r) {
+  let prefs = {}; try { prefs = JSON.parse(localStorage.getItem('sc_updates') || '{}'); } catch { /* fresh */ }
+  const st = { place: r.q.get('place') || prefs.place || 'Namibia', days: Number(prefs.days) || 7, topic: prefs.topic || 'all', source: prefs.source || 'all', kind: 'food', geo: null };
+  const save = () => { try { localStorage.setItem('sc_updates', JSON.stringify({ place: st.place, days: st.days, topic: st.topic, source: st.source })); } catch { /* ignore */ } };
+  const today = new Date().toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+  main.innerHTML = `
+  <div class="paper-head reveal"><span class="small muted">${esc(today)}</span><h1 class="masthead">The Speed Times</h1>
+    <span class="small muted">News, events and places for wherever you're going next</span></div>
+  <form class="card stack reveal" id="nform" style="margin-top:14px">
+    <div class="row wrap" style="gap:10px"><input class="input" id="nplace" style="flex:1;min-width:200px" value="${esc(st.place)}" aria-label="Place" placeholder="Town, park, region or country"><button class="btn primary">${icon('news', 18)} Get updates</button></div>
+    <div class="chips" aria-label="Quick places">${QUICK_PLACES.map((x) => `<button type="button" class="chip" data-place="${esc(x)}">${esc(x)}</button>`).join('')}</div>
+    <div class="row wrap" style="gap:14px;align-items:flex-end">
+      <div class="field"><span class="small muted">Timeframe</span><div class="chips" id="nrange">${NEWS_RANGES.map(([d, l]) => `<button type="button" class="chip" data-days="${d}">${l}</button>`).join('')}</div></div>
+      <div class="field"><span class="small muted">Or the last…</span><div class="row"><input class="input" id="nnum" type="number" min="1" max="120" value="3" style="width:76px" aria-label="Number"><select class="input" id="nunit" style="width:auto" aria-label="Unit"><option value="1">days</option><option value="7">weeks</option><option value="30" selected>months</option><option value="365">years</option></select><button type="button" class="btn small ghost" id="ncustom">Apply</button></div></div>
+      <div class="field"><span class="small muted">Sources</span><div class="chips" id="nsrc"><button type="button" class="chip" data-src="all">All news</button><button type="button" class="chip" data-src="namibia">Namibian press</button></div></div>
+    </div>
+    <div class="chips" id="ntopic">${NEWS_TOPICS.map(([k, l]) => `<button type="button" class="chip" data-topic="${k}">${l}</button>`).join('')}</div>
+  </form>
+  <div class="paper" style="margin-top:16px">
+    <section id="nlist" aria-live="polite"></section>
+    <aside class="stack">
+      <div class="card stack reveal"><h2>${icon('place', 20)} Nearby <span class="small muted" id="nnear"></span></h2>
+        <div class="chips" id="nkind">${Object.entries(NEARBY).map(([k, [l]]) => `<button type="button" class="chip" data-kind="${k}">${l}</button>`).join('')}</div>
+        <div id="nplaces" class="list"></div>
+        <span class="small muted">Places from OpenStreetMap. Tap one for Google Maps reviews, photos and directions.</span></div>
+      <div class="card stack reveal"><h2>More sources</h2><div class="list" id="nmore"></div></div>
+      ${adBlock()}
+    </aside>
+  </div>`;
+  const mark = () => {
+    $$('#nrange .chip').forEach((b) => b.setAttribute('aria-pressed', String(+b.dataset.days === st.days)));
+    $$('#ntopic .chip').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.topic === st.topic)));
+    $$('#nsrc .chip').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.src === st.source)));
+    $$('#nkind .chip').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.kind === st.kind)));
+  };
+  const span = () => (NEWS_RANGES.find(([d]) => d === st.days)?.[1] || `last ${st.days} days`).toLowerCase();
+  const more = () => {
+    const p = st.place;
+    const links = [
+      ['Google Maps', gmaps(p), 'Restaurants, stays, reviews and directions'],
+      ['Google News', `https://news.google.com/search?q=${encodeURIComponent(p)}`, 'Every story about ' + p],
+      ['Facebook', `https://www.facebook.com/search/top?q=${encodeURIComponent(p)}`, 'Local pages, groups and events'],
+      ['Travel News Namibia', 'https://issuu.com/travelnewsnamibia', 'Magazine issues on Issuu'],
+      ['Safari & tourism', `https://www.google.com/search?q=${encodeURIComponent(p + ' safari Namibia tourism')}`, 'Lodges, tours and parks'],
+      ['YouTube', `https://www.youtube.com/results?search_query=${encodeURIComponent(p + ' travel')}`, 'See the place before you go'],
+    ];
+    $('#nmore').innerHTML = links.map(([t, u, d]) => `<a href="${esc(u)}" target="_blank" rel="noopener noreferrer" class="row between link-row"><span><b>${esc(t)}</b><br><span class="small muted">${esc(d)}</span></span>↗</a>`).join('');
+  };
+  const loadNews = async (quiet) => {
+    const box = $('#nlist'); if (!box) return;
+    if (!quiet) box.innerHTML = '<div class="skeleton"><span></span><span></span><span></span></div>';
+    try {
+      const res = await api.news({ place: st.place, days: st.days, topic: st.topic, source: st.source, country: S.profile?.home_country_code || 'NA' });
+      if (!$('#nlist')) return;
+      const items = res.items || [];
+      if (!items.length) { box.innerHTML = `<div class="notice">No ${st.topic === 'all' ? '' : esc(NEWS_TOPICS.find(([k]) => k === st.topic)[1].toLowerCase()) + ' '}news about <b>${esc(st.place)}</b> ${esc(span())}. Try a longer timeframe or a bigger place.</div>`; return; }
+      const [lead, ...rest] = items;
+      const story = (x, i) => `<article class="story reveal" style="--i:${i}"><span class="kicker">${esc(x.source || 'News')} · ${ago(x.published)}</span>
+        <a href="${esc(x.link)}" target="_blank" rel="noopener noreferrer"><h3>${esc(x.title)}</h3></a></article>`;
+      box.innerHTML = `<div class="row between small muted" style="margin-bottom:8px"><span>${items.length} stories · ${esc(st.place)} · ${esc(span())}</span><span>Updated ${ago(res.fetched_at)}${res.stale ? ' (offline copy)' : ''}</span></div>
+        <article class="lead reveal"><span class="kicker">${esc(lead.source || 'News')} · ${ago(lead.published)}</span><a href="${esc(lead.link)}" target="_blank" rel="noopener noreferrer"><h2>${esc(lead.title)}</h2></a>
+          <div class="row wrap"><a class="btn small dark" href="#/planner?q=${encodeURIComponent('What does this mean for travellers going to ' + st.place + ': ' + lead.title)}">${icon('planner', 16)} Ask the assistant</a></div></article>
+        <div class="columns">${rest.map(story).join('')}</div>`;
+    } catch (e) { if ($('#nlist')) box.innerHTML = `<div class="notice">${esc(e.message)}</div>`; }
+  };
+  const loadPlaces = async () => {
+    const box = $('#nplaces'); if (!box) return;
+    box.innerHTML = '<div class="skeleton"><span></span><span></span></div>';
+    try {
+      if (!st.geo || st.geo.q !== st.place) { const g = await geocode(st.place); st.geo = { q: st.place, ...g }; }
+      $('#nnear').textContent = '· ' + [st.geo.name, st.geo.detail].filter(Boolean).join(', ').slice(0, 40);
+      const list = await nearby(st.geo.lat, st.geo.lng, st.kind);
+      if (!$('#nplaces')) return;
+      box.innerHTML = list.length ? list.map((x, i) => `<a class="place-row reveal" style="--i:${i}" href="${esc(gmaps(`${x.name} ${x.lat},${x.lng}`))}" target="_blank" rel="noopener noreferrer">
+        <span><b>${esc(x.name)}</b><br><span class="small muted">${esc(x.kind)}${x.hours ? ' · ' + esc(x.hours.slice(0, 40)) : ''}</span></span><span class="small muted">${x.dist < 1 ? Math.round(x.dist * 1000) + ' m' : x.dist.toFixed(1) + ' km'}</span></a>`).join('')
+        : `<p class="small muted">Nothing mapped within 6 km. <a href="${esc(gmaps(NEARBY[st.kind][0] + ' near ' + st.place))}" target="_blank" rel="noopener">Search Google Maps</a></p>`;
+    } catch (e) { if ($('#nplaces')) box.innerHTML = `<p class="small muted">${esc(e.message)}. <a href="${esc(gmaps(NEARBY[st.kind][0] + ' near ' + st.place))}" target="_blank" rel="noopener">Open Google Maps</a></p>`; }
+  };
+  const go = () => { save(); mark(); more(); loadNews(); loadPlaces(); };
+  $('#nform').onsubmit = (e) => { e.preventDefault(); const v = $('#nplace').value.trim(); if (v.length < 2) { toast('Type a place'); return; } st.place = v; go(); };
+  $$('[data-place]').forEach((b) => b.onclick = () => { st.place = b.dataset.place; $('#nplace').value = st.place; go(); });
+  $$('#nrange .chip').forEach((b) => b.onclick = () => { st.days = +b.dataset.days; save(); mark(); loadNews(); });
+  $('#ncustom').onclick = () => { const n = Math.min(Math.max(parseInt($('#nnum').value, 10) || 1, 1), 120); st.days = Math.min(n * +$('#nunit').value, 3650); save(); mark(); loadNews(); };
+  $$('#ntopic .chip').forEach((b) => b.onclick = () => { st.topic = b.dataset.topic; save(); mark(); loadNews(); });
+  $$('#nsrc .chip').forEach((b) => b.onclick = () => { st.source = b.dataset.src; save(); mark(); loadNews(); });
+  $$('#nkind .chip').forEach((b) => b.onclick = () => { st.kind = b.dataset.kind; mark(); loadPlaces(); });
+  go();
+  const timer = setInterval(() => { if (document.visibilityState === 'visible') loadNews(true); }, 10 * 60 * 1000);
+  cleanup = () => clearInterval(timer);
+}
+
 /* ---------- EFT payments ---------- */
 const PLAN_NAMES = { monthly: 'Premium · 1 month', yearly: 'Premium · 1 year', pro_monthly: 'Pro · 1 month', pro_yearly: 'Pro · 1 year' };
 function eftFlow(pay, onDone) {
@@ -1363,7 +1546,7 @@ async function Admin(main, r) {
   const rows = await api.adminPayments(status);
   const tab = (k, l) => `<a class="btn small ${status === k ? 'dark' : 'ghost'}" href="#/admin?s=${k}">${l}</a>`;
   main.innerHTML = `<div class="page-head"><div><span class="eyebrow">Admin</span><h1>EFT payments</h1><p>Check your FNB account for the reference, then activate.</p></div></div>
-    <div class="row wrap" style="margin-bottom:12px">${tab('pending', 'To check')}${tab('paid', 'Paid')}${tab('rejected', 'Rejected')}${tab('all', 'All')}</div>
+    <div class="row wrap" style="margin-bottom:12px">${tab('pending', 'To check')}${tab('paid', 'Paid')}${tab('rejected', 'Rejected')}${tab('all', 'All')}<button class="btn small ghost" id="csv">Download CSV</button></div>
     <div class="stack">${rows.length ? rows.map((x) => `<div class="card stack" style="padding:16px">
       <div class="row between wrap"><b>${esc(x.display_name || x.email)}</b><span class="badge ${x.status === 'paid' ? 'dark' : ''}">${esc(x.status)}</span></div>
       <span class="small muted">${esc(x.email)} · ${fmtDate(x.created_at)}</span>
@@ -1372,6 +1555,14 @@ async function Admin(main, r) {
       <div class="row wrap">${x.proof_path ? `<button class="btn small ghost" data-proof="${esc(x.proof_path)}">View proof</button>` : '<span class="small muted">No proof uploaded (check your email)</span>'}
         ${x.status === 'pending' ? `<button class="btn small primary" data-ok="${x.id}">Activate &amp; mark paid</button><button class="btn small ghost" data-no="${x.id}">Reject</button>` : ''}</div>
     </div>`).join('') : '<div class="notice">Nothing here.</div>'}</div>`;
+  $('#csv').onclick = async () => {
+    const all = await api.adminPayments('all');
+    const cell = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`.replace(/^"([=+\-@])/, '"\'$1');
+    const lines = [['Date', 'Reference', 'Name', 'Email', 'Plan', 'Amount (NAD)', 'Status', 'Reviewed', 'Note'].join(',')]
+      .concat(all.map((x) => [x.created_at.slice(0, 10), x.reference, x.display_name, x.email, PLAN_NAMES[x.plan] || x.plan, x.amount, x.status, (x.reviewed_at || '').slice(0, 10), x.admin_note].map(cell).join(',')));
+    const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([lines.join('\n')], { type: 'text/csv' }));
+    a.download = `speedcurrency-payments-${new Date().toISOString().slice(0, 10)}.csv`; a.click();
+  };
   $$('[data-proof]').forEach((b) => b.onclick = async () => { const u = await api.proofUrl(b.dataset.proof); if (u) window.open(u, '_blank', 'noopener'); else toast('Could not open the file'); });
   $$('[data-ok]').forEach((b) => b.onclick = async () => {
     const x = rows.find((y) => y.id === b.dataset.ok);

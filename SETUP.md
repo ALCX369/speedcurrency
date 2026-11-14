@@ -58,3 +58,9 @@ Free projects pause after 7 days without visits. Normal daily use keeps it awake
 2. They pay by EFT, then upload their proof in the app or email it to the address in `PAYMENTS_EMAIL`.
 3. Sign in with cycleswithgrace@gmail.com and open **Admin** in the sidebar. Check your FNB account for the amount and reference, then tap **Activate & mark paid**. The plan, its end date and the bonus tokens are applied immediately. **Reject** shows your note to the user.
 Bank details live in `app/config.js` (`BANK`). Prices live in `app/config.js` and in `_plan_info()` in `supabase/migrations/004_eft_payments.sql`; change both together.
+
+## Updates newspaper
+`supabase/functions/news` fetches Google News RSS for a place, topic and timeframe (free, no key), cached for 2 hours in `news_cache`. The app re-checks every 10 minutes while Updates is open. "Namibian press" limits results to Namibian newspapers, broadcasters and Travel News Namibia. Nearby places come from OpenStreetMap (Overpass) and link to Google Maps for reviews and directions.
+
+## Account deletion
+`supabase/functions/account` deletes the user's photos, proof files and account. Payment records stay (user_id becomes null) as tax law requires — needs migration 005.
