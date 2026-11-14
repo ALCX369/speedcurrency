@@ -1,8 +1,8 @@
 // SpeedCurrency app settings. The anon key is safe to publish (data is protected by database rules).
 // Leave SUPABASE_URL empty to run the app in demo mode (data stays on this device only).
 window.SC_CONFIG = {
-  SUPABASE_URL: "",
-  SUPABASE_ANON_KEY: "",
+  SUPABASE_URL: "https://wuhrbpuwjwmlnmvvkcaa.supabase.co",
+  SUPABASE_ANON_KEY: "sb_publishable_FXhpiE1_lsLFRwRwULhOog_CCjO-1UP",
   // Google AdSense (shown to free users only). Ads appear once AdSense approves a domain you own.
   ADSENSE_CLIENT: "ca-pub-3155975488847083",
   ADSENSE_SLOT: "",

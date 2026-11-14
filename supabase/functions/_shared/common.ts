@@ -1,5 +1,5 @@
 // Shared helpers for SpeedCurrency server functions (Supabase Edge Functions, Deno).
-import { createClient, SupabaseClient, User } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient, SupabaseClient, User } from "npm:@supabase/supabase-js@2";
 
 export const cors = {
   "Access-Control-Allow-Origin": Deno.env.get("APP_ORIGIN") ?? "*",

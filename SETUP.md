@@ -1,6 +1,7 @@
 # SpeedCurrency app – setup (free services only)
 
 The app lives in `app/` and is live at https://alcx369.github.io/speedcurrency/app/
+Supabase project: `speedcurrency` (ref wuhrbpuwjwmlnmvvkcaa, London). Database, photo storage and the register, planner and dpo functions are already set up.
 Until step 1–2 are done it runs in **demo mode** (data stays on the device).
 
 | Service | Used for | Free plan |
