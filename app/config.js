@@ -6,11 +6,13 @@ window.SC_CONFIG = {
   // Google AdSense (shown to free users only). Ads appear once AdSense approves a domain you own.
   ADSENSE_CLIENT: "ca-pub-3155975488847083",
   ADSENSE_SLOT: "",
-  // AI planner: Perplexity Sonar through Puter.js (no API keys; users sign in to a free Puter account)
-  PLANNER_MODEL: "perplexity/sonar",
-  PRICE_MONTHLY: 129,
-  PRICE_YEARLY: 1099,
+  PRICE_MONTHLY: 149,
+  PRICE_YEARLY: 1399,
+  PRICE_PRO_MONTHLY: 349,
+  PRICE_PRO_YEARLY: 3299,
   FREE_PLANS_PER_MONTH: 3,
-  PREMIUM_PLANS_PER_MONTH: 40,
+  PREMIUM_PLANS_PER_MONTH: 60,
+  PRO_PLANS_PER_MONTH: 120,
+  TOKENS_PER_EXTRA_QUESTION: 5,
   SHOP_URL: "https://alcx369.myshopify.com/collections/christmas-gift-shop",
 };

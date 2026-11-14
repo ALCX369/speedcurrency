@@ -33,6 +33,13 @@ const I = {
   plus: '<path d="M12 5v14M5 12h14"/>',
   send: '<path d="M5 12h14M13 6l6 6-6 6"/>',
   steps: '<path d="M4 7h10M4 12h16M4 17h7"/>',
+  explore: '<circle cx="12" cy="12" r="9"/><path d="M15.5 8.5l-2 5-5 2 2-5z"/>',
+  chat: '<path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z"/>',
+  album: '<rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="9" cy="10" r="2"/><path d="M21 16l-5-5-8 8"/>',
+  shield: '<path d="M12 3l8 3v6c0 4.5-3.4 8.3-8 9-4.6-.7-8-4.5-8-9V6z"/><path d="M9 12l2 2 4-4"/>',
+  gift: '<rect x="3" y="8" width="18" height="13" rx="2"/><path d="M12 8v13M3 12h18M12 8c-2-4-6-4-6-1s6 1 6 1 6 2 6-1-4-3-6 1"/>',
+  token: '<circle cx="12" cy="12" r="9"/><path d="M12 7v10M9 9.5h4.5a1.8 1.8 0 0 1 0 3.5h-3a1.8 1.8 0 0 0 0 3.5H15"/>',
+  passport: '<rect x="5" y="3" width="14" height="18" rx="2"/><circle cx="12" cy="10" r="3"/><path d="M9 16h6"/>',
 };
 const icon = (n, s = 20) => `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${I[n] || ''}</svg>`;
 
@@ -51,6 +58,9 @@ function guessCountry() {
 }
 
 /* ---------- data API ---------- */
+const CACHE = new Map();
+const OWNED = ['trips', 'journal_entries', 'pins', 'planner_chats', 'planner_messages'];
+const bust = (table) => { for (const k of [...CACHE.keys()]) if (k.includes(`"${table}"`)) CACHE.delete(k); };
 const api = {
   async user() {
     if (DEMO) return DS.load().user || null;
@@ -65,7 +75,8 @@ const api = {
       d.profile = { id: 'demo', display_name: name, username: null, home_country: g.name, home_country_code: g.code, plan: 'free', premium_until: null, public_journal: false, allow_tags: true };
       DS.save(d); return;
     }
-    const { error } = await sb.auth.signUp({ email, password, options: { data: { display_name: name }, emailRedirectTo: location.origin + location.pathname } });
+    let ref = ''; try { ref = localStorage.getItem('sc_ref') || ''; } catch { /* private mode */ }
+    const { error } = await sb.auth.signUp({ email, password, options: { data: { display_name: name, ref }, emailRedirectTo: location.origin + location.pathname } });
     if (error) throw error;
   },
   async signIn(email, password) {
@@ -97,16 +108,21 @@ const api = {
     if (error) throw error;
     return data;
   },
-  async list(table, { order = 'created_at', asc = false, eq } = {}) {
+  async list(table, { order = 'created_at', asc = false, eq, all = false, fresh = false } = {}) {
     if (DEMO) {
       let rows = DS.get(table);
       if (eq) rows = rows.filter((r) => r[eq[0]] === eq[1]);
       return rows.sort((a, b) => (a[order] > b[order] ? 1 : -1) * (asc ? 1 : -1));
     }
+    const key = JSON.stringify([table, order, asc, eq, all]);
+    const hit = CACHE.get(key);
+    if (!fresh && hit && Date.now() - hit.at < 20000) return hit.rows;
     let q = sb.from(table).select('*').order(order, { ascending: asc });
     if (eq) q = q.eq(eq[0], eq[1]);
+    if (!all && OWNED.includes(table) && S.user) q = q.eq('user_id', S.user.id);
     const { data, error } = await q;
     if (error) throw error;
+    CACHE.set(key, { at: Date.now(), rows: data });
     return data;
   },
   async get(table, id) {
@@ -115,17 +131,20 @@ const api = {
     return data;
   },
   async insert(table, row) {
+    bust(table);
     if (DEMO) { const r = { id: uid(), created_at: new Date().toISOString(), ...row }; DS.set(table, [...DS.get(table), r]); return r; }
     const { data, error } = await sb.from(table).insert(row).select().single();
     if (error) throw error;
     return data;
   },
   async update(table, id, patch) {
+    bust(table);
     if (DEMO) { DS.set(table, DS.get(table).map((r) => (r.id === id ? { ...r, ...patch } : r))); return; }
     const { error } = await sb.from(table).update(patch).eq('id', id);
     if (error) throw error;
   },
   async remove(table, id) {
+    bust(table);
     if (DEMO) { DS.set(table, DS.get(table).filter((r) => r.id !== id)); return; }
     const { error } = await sb.from(table).delete().eq('id', id);
     if (error) throw error;
@@ -150,51 +169,80 @@ const api = {
     const { count } = await sb.from('planner_messages').select('id', { count: 'exact', head: true }).eq('role', 'user').gte('created_at', start.toISOString());
     return count || 0;
   },
-  async ask(chatId, message) {
-    if (DEMO) return demoPlanner(chatId, message);
-    if (!window.puter) throw new Error('The AI service did not load. Check your connection and refresh.');
-    const used = await this.plannerUsage();
-    const limit = planLimit();
-    if (used >= limit) throw new Error(premium() ? `You've used all ${limit} plans this month.` : `Free accounts get ${limit} plans a month. Go Premium for ${C.PREMIUM_PLANS_PER_MONTH}.`);
-    const u = await this.user();
-    let history = [];
-    if (chatId) {
-      const { data } = await sb.from('planner_messages').select('role, content').eq('chat_id', chatId).order('created_at', { ascending: false }).limit(8);
-      history = (data || []).reverse().map((m) => ({ role: m.role, content: m.content }));
+  async askStream(chatId, message, mode, on) {
+    if (DEMO) { const r = demoPlanner(chatId, message); on({ type: 'start', chat_id: r.chat_id }); on({ type: 'demo', data: r.data }); on({ type: 'done', chat_id: r.chat_id }); return; }
+    const { data: { session } } = await sb.auth.getSession();
+    const res = await fetch(`${C.SUPABASE_URL}/functions/v1/assistant`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', apikey: C.SUPABASE_ANON_KEY, Authorization: `Bearer ${session?.access_token}` },
+      body: JSON.stringify({ chat_id: chatId, message, mode }),
+    });
+    if (!res.ok || !res.body) { let m = 'The assistant could not answer.'; try { m = (await res.json()).error || m; } catch { /* keep */ } throw new Error(m); }
+    const reader = res.body.getReader(); const dec = new TextDecoder(); let buf = '';
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += dec.decode(value, { stream: true });
+      let i;
+      while ((i = buf.indexOf('\n\n')) >= 0) {
+        const line = buf.slice(0, i); buf = buf.slice(i + 2);
+        if (!line.startsWith('data: ')) continue;
+        let ev; try { ev = JSON.parse(line.slice(6)); } catch { continue; }
+        if (ev.type === 'error') throw Object.assign(new Error(ev.error), { upgrade: ev.upgrade });
+        on(ev);
+      }
     }
-    const home = S.profile?.home_country || 'unknown';
-    const today = new Date().toISOString().slice(0, 10);
-    const system = `You are SpeedCurrency's travel planner. Today is ${today}. The traveller's passport/home country is ${home}.
-Search the web for current facts: entry and visa rules for a ${home} passport, prices, places with what reviewers say, and recommended travel agents or official offices.
-Never invent prices, reviews, phone numbers or rules; if you can't find something, say so and name the official source to check. Keep prices in the currency the source uses. Be practical and short.
-Reply with JSON only (no markdown), in this shape:
-{"summary":"2-4 sentences","itinerary":[{"day":"Day 1","plan":"..."}],"documents":[{"item":"Visa / passport validity / yellow fever","status":"required|not required|check","detail":"...","source":1}],"agents":[{"name":"...","why":"...","contact":"website or phone if found","source":2}],"places":[{"name":"...","type":"stay|eat|see|car|other","price":"if found","reviews":"what reviewers say, short","source":3}],"costs":[{"item":"...","amount":"with currency","source":4}],"next_steps":["..."],"follow_up":"one short question or empty","sources":[{"n":1,"title":"page title","url":"https://..."}]}
-"source" is the number of the entry in "sources". Use [] for sections that don't apply.`;
-    const resp = await puter.ai.chat([{ role: 'system', content: system }, ...history, { role: 'user', content: message }], { model: C.PLANNER_MODEL || 'perplexity/sonar' });
-    let raw = resp?.message?.content ?? resp?.text ?? resp;
-    if (Array.isArray(raw)) raw = raw.map((p) => (typeof p === 'string' ? p : p?.text || '')).join('');
-    raw = String(raw || '');
-    let data;
-    try { const m = raw.match(/\{[\s\S]*\}/); data = JSON.parse(m ? m[0] : raw); }
-    catch { data = { summary: raw.replace(/\[\d+\]/g, '').slice(0, 2000) }; }
-    const cites = resp?.citations || resp?.message?.citations || resp?.search_results || [];
-    if ((!data.sources || !data.sources.length) && cites.length) data.sources = cites.map((c, i) => ({ n: i + 1, title: c.title || c.url || c, url: c.url || c }));
-    data.sources = (data.sources || []).filter((x) => /^https?:\/\//.test(x.url || '')).slice(0, 12);
-    data.model = C.PLANNER_MODEL || 'perplexity/sonar';
-    const content = String(data.summary || 'Here is what I found.');
-    if (!chatId) {
-      const { data: c, error } = await sb.from('planner_chats').insert({ title: message.slice(0, 60) }).select('id').single();
-      if (error) throw error;
-      chatId = c.id;
-    }
-    const { error: e2 } = await sb.from('planner_messages').insert([
-      { chat_id: chatId, user_id: u.id, role: 'user', content: message },
-      { chat_id: chatId, user_id: u.id, role: 'assistant', content, data },
-    ]);
-    if (e2) throw e2;
-    await sb.from('planner_chats').update({ updated_at: new Date().toISOString() }).eq('id', chatId);
-    return { chat_id: chatId, content, data, used: used + 1, limit };
+    bust('planner_chats'); bust('planner_messages');
   },
+  async balance() {
+    if (DEMO) return 20;
+    const { data } = await sb.rpc('token_balance');
+    return data ?? 0;
+  },
+  async ledger() {
+    if (DEMO) return [{ delta: 20, reason: 'Welcome bonus', created_at: new Date().toISOString() }];
+    const { data } = await sb.from('token_ledger').select('delta, reason, created_at').order('created_at', { ascending: false }).limit(20);
+    return data || [];
+  },
+  async profilesById(ids) {
+    ids = [...new Set(ids.filter(Boolean))];
+    if (!ids.length || DEMO) return {};
+    const { data } = await sb.rpc('get_profiles', { ids });
+    return Object.fromEntries((data || []).map((p) => [p.id, p]));
+  },
+  async feed() {
+    if (DEMO) return [];
+    const { data, error } = await sb.from('journal_entries').select('*').eq('is_public', true).neq('user_id', S.user.id).order('created_at', { ascending: false }).limit(30);
+    if (error) throw error;
+    return data;
+  },
+  async comments(entryId) {
+    if (DEMO) return [];
+    const { data } = await sb.from('journal_comments').select('*').eq('entry_id', entryId).order('created_at');
+    return data || [];
+  },
+  async addComment(entryId, body) {
+    if (DEMO) throw new Error('Comments work once you are signed in online.');
+    const { error } = await sb.rpc('add_comment', { entry: entryId, body });
+    if (error) throw new Error(error.message);
+  },
+  async conversations() {
+    if (DEMO) return [];
+    const { data } = await sb.from('conversations').select('*').order('last_at', { ascending: false });
+    return data || [];
+  },
+  async messages(convId) {
+    const { data } = await sb.from('messages').select('*').eq('conversation_id', convId).order('created_at').limit(200);
+    return data || [];
+  },
+  async sendMessage(toUser, body) {
+    if (DEMO) throw new Error('Messages work once you are signed in online.');
+    const { data, error } = await sb.rpc('send_message', { to_user: toUser, body });
+    if (error) throw new Error(error.message);
+    return data;
+  },
+  async block(userId) { const { error } = await sb.from('blocks').insert({ blocker: S.user.id, blocked: userId }); if (error && !/duplicate/.test(error.message)) throw error; },
+  async report(type, id, reason) { const { error } = await sb.from('reports').insert({ target_type: type, target_id: id, reason }); if (error) throw error; },
   async pay(plan) {
     if (DEMO) throw new Error('Payments work once the app is connected to DPO.');
     const { data, error } = await sb.functions.invoke('dpo', { body: { action: 'start', plan } });
@@ -219,7 +267,7 @@ function demoPlanner(chatId, message) {
   if (!chat) { chat = { id: uid(), title: message.slice(0, 60), created_at: new Date().toISOString(), updated_at: new Date().toISOString() }; DS.set('planner_chats', [...DS.get('planner_chats'), chat]); }
   const data = {
     demo: true,
-    summary: 'Demo mode: the live planner connects once the free AI and search keys are added. Here is how a real answer is laid out, using a sample Etosha trip.',
+    summary: 'Demo mode: live Claude answers appear once you are signed in online. Here is a sample Etosha answer.',
     itinerary: [{ day: 'Day 1', plan: 'Drive to Okaukuejo, evening at the floodlit waterhole.' }, { day: 'Day 2–3', plan: 'Game drives, stay at Halali.' }, { day: 'Day 4–5', plan: 'Namutoni and Fischer’s Pan, drive home.' }],
     documents: [{ item: 'Visa', status: 'check', detail: 'The live planner checks the rules for your passport and links the official source.', source: 1 }],
     agents: [{ name: 'Namibia Wildlife Resorts (NWR)', why: 'Runs the rest camps inside Etosha', contact: 'nwr.com.na', source: 1 }],
@@ -276,8 +324,9 @@ async function shrink(file, max = DEMO ? 720 : 1440, q = DEMO ? 0.7 : 0.82) {
 
 /* ---------- state ---------- */
 const S = { user: null, profile: null };
-const premium = () => !!S.profile && S.profile.plan === 'premium' && S.profile.premium_until && new Date(S.profile.premium_until) > new Date();
-const planLimit = () => (premium() ? C.PREMIUM_PLANS_PER_MONTH : C.FREE_PLANS_PER_MONTH);
+const tier = () => (S.profile && ['premium', 'pro'].includes(S.profile.plan) && S.profile.premium_until && new Date(S.profile.premium_until) > new Date() ? S.profile.plan : 'free');
+const premium = () => tier() !== 'free';
+const planLimit = () => ({ free: C.FREE_PLANS_PER_MONTH, premium: C.PREMIUM_PLANS_PER_MONTH, pro: C.PRO_PLANS_PER_MONTH }[tier()]);
 
 /* ---------- ads (free users only) ---------- */
 let adsenseLoaded = false;
@@ -300,8 +349,8 @@ function activateAds() {
 }
 
 /* ---------- navigation ---------- */
-const NAV = [['', 'Home', 'home'], ['planner', 'Planner', 'planner'], ['trips', 'Trips', 'trips'], ['map', 'Map', 'map'], ['journal', 'Journal', 'journal'], ['account', 'Account', 'account']];
-const TABS = ['', 'planner', 'map', 'journal', 'account'];
+const NAV = [['', 'Home', 'home'], ['planner', 'Assistant', 'planner'], ['trips', 'Trips', 'trips'], ['map', 'Map', 'map'], ['journal', 'Journal', 'journal'], ['explore', 'Explore', 'explore'], ['messages', 'Chats', 'chat'], ['account', 'Account', 'account']];
+const TABS = ['', 'planner', 'journal', 'messages', 'account'];
 function renderNav(active) {
   const link = ([r, l, ic]) => `<a href="#/${r}" ${active === r ? 'aria-current="page"' : ''}>${icon(ic)}<span>${l}</span></a>`;
   $('#nav').innerHTML = S.user ? NAV.map(link).join('') : '';
@@ -315,15 +364,17 @@ function route() {
   const [name = '', id] = path.split('/');
   return { name, id, q: new URLSearchParams(query || '') };
 }
+let cleanup = null;
 async function render() {
   const r = route();
   const main = $('#main');
   if (!S.user && r.name !== 'auth') { location.hash = '#/auth'; return; }
   if (S.user && r.name === 'auth') { location.hash = '#/'; return; }
   renderNav(r.name === 'auth' ? null : r.name);
-  const views = { '': Home, planner: Planner, trips: Trips, map: MapView, journal: Journal, account: Account, auth: Auth };
+  const views = { '': Home, planner: Planner, trips: Trips, map: MapView, journal: Journal, album: Album, explore: Explore, messages: Messages, account: Account, auth: Auth };
   const view = views[r.name] || Home;
-  main.innerHTML = '<p class="muted">Loading…</p>';
+  try { cleanup?.(); } catch { /* ignore */ } cleanup = null;
+  main.innerHTML = '<div class="skeleton"><span></span><span></span><span></span></div>';
   try { await view(main, r); } catch (e) { console.error(e); main.innerHTML = `<div class="notice">Something went wrong: ${esc(e.message)}</div>`; }
   activateAds();
   main.focus({ preventScroll: true });
@@ -371,7 +422,7 @@ async function Auth(main) {
     <section class="stack" style="gap:18px">
       <span class="eyebrow">speed.currency</span>
       <h1>Plan your next move with real, current information.</h1>
-      <p class="muted" style="font-size:18px;margin:0">Ask the planner where to go and what it costs. It researches the documents your passport needs, recommended agents, places with reviews and prices, and keeps every plan in your history. Journal your trips, pin places on your map and convert money anywhere.</p>
+      <p class="muted" style="font-size:18px;margin:0">Ask the Claude-powered assistant where to go and what it costs. It researches the documents your passport needs, recommended agents, places with reviews and prices, and keeps every plan in your history. Journal your trips, pin places on your map and convert money anywhere.</p>
       <div class="grid g3">
         <div class="card"><h3>${icon('doc')} Documents</h3><p class="small muted" style="margin:6px 0 0">Entry rules for your passport, with official links.</p></div>
         <div class="card"><h3>${icon('agent')} Agents</h3><p class="small muted" style="margin:6px 0 0">Recommended tour operators and offices.</p></div>
@@ -383,6 +434,7 @@ async function Auth(main) {
       <div class="row" role="tablist"><button class="chip" role="tab" aria-pressed="true" data-mode="up">Create account</button><button class="chip" role="tab" aria-pressed="false" data-mode="in">Sign in</button></div>
       <form id="authf" class="stack">
         <div class="field" id="namef"><label for="aname">Your name</label><input class="input" id="aname" autocomplete="name" maxlength="60"></div>
+        ${(() => { try { return localStorage.getItem('sc_ref') ? `<div class="notice">${icon('gift', 16)} You were invited. You'll get <b>40 tokens</b> when you join.</div>` : ''; } catch { return ''; } })()}
         <div class="field"><label for="aemail">Email</label><input class="input" id="aemail" type="email" autocomplete="email" required></div>
         <div class="field"><label for="apass">Password</label><input class="input" id="apass" type="password" autocomplete="new-password" minlength="8" required></div>
         <p class="small muted" id="countrynote" style="margin:0">${icon('lock', 14)} Your home country is set from where you create the account and can’t be changed later. It decides which travel documents the planner checks for you.</p>
@@ -409,7 +461,7 @@ async function Auth(main) {
     try {
       if (mode === 'up') {
         await api.signUp($('#aemail').value.trim(), $('#apass').value, $('#aname').value.trim());
-        if (!DEMO && !(await api.user())) { toast('Check your email to confirm your account, then sign in'); setMode('in'); return; }
+        if (!DEMO && !(await api.user())) { toast('Account created. Sign in to continue.'); setMode('in'); return; }
       } else await api.signIn($('#aemail').value.trim(), $('#apass').value);
       await boot();
       location.hash = '#/';
@@ -426,9 +478,18 @@ async function Home(main) {
   const next = trips.find((t) => !t.end_date || t.end_date >= today);
   const homeCur = homeCurrency(S.profile.home_country_code);
   const first = (S.profile.display_name || '').split(' ')[0];
+  const bal = await api.balance();
+  const exp = S.profile.passport_expiry ? new Date(S.profile.passport_expiry) : null;
+  const months = exp ? (exp - new Date()) / (30.44 * 864e5) : null;
+  const tripEnd = next?.end_date ? new Date(next.end_date) : null;
+  const passportNote = !exp
+    ? `<a class="notice row" href="#/account" style="text-decoration:none">${icon('passport', 18)}<span>Add your passport country and expiry date so the assistant checks the right rules.</span></a>`
+    : months < 0 ? `<div class="notice row">${icon('passport', 18)}<span><b>Your passport has expired.</b> Renew it before you travel.</span></div>`
+    : (months < 6 || (tripEnd && (exp - tripEnd) / (30.44 * 864e5) < 6)) ? `<div class="notice row">${icon('passport', 18)}<span><b>Passport expires ${fmtDate(exp)}.</b> Many countries need 6 months' validity after you arrive.</span></div>` : '';
   main.innerHTML = `
-  <div class="page-head"><div><span class="eyebrow">${esc(S.profile.home_country || '')}</span><h1>${first ? `Hi ${esc(first)}, where to next?` : 'Where to next?'}</h1></div>
-    <a class="btn primary" href="#/planner">${icon('planner')} Ask the planner</a></div>
+  <div class="page-head"><div><span class="eyebrow">${esc(S.profile.home_country || '')}${tier() !== 'free' ? ' · ' + tier().toUpperCase() : ''}</span><h1>${first ? `Hi ${esc(first)}, where to next?` : 'Where to next?'}</h1></div>
+    <div class="row wrap"><a class="badge" href="#/account?tab=tokens" style="text-decoration:none">${icon('token', 14)} ${bal} tokens</a><a class="btn primary" href="#/planner">${icon('planner')} Ask the assistant</a></div></div>
+  ${passportNote}
   <div class="hero">
     <section class="card dark stack" aria-label="Quick convert">
       <div class="row between"><h2 style="color:var(--on-dark)">Convert</h2><span class="small muted" id="ratedate"></span></div>
@@ -452,6 +513,8 @@ async function Home(main) {
       <div class="grid g2">
         <a class="shortcut" href="#/journal?new=1">${icon('journal')}New journal</a>
         <a class="shortcut" href="#/map">${icon('map')}My map</a>
+        <a class="shortcut" href="#/album">${icon('album')}Album</a>
+        <a class="shortcut" href="#/explore">${icon('explore')}Explore</a>
       </div>
     </section>
   </div>
@@ -506,87 +569,126 @@ function renderAnswer(d) {
   </div>`;
 }
 
+/* simple, safe markdown for assistant answers */
+function md(text, sources = []) {
+  const lines = esc(text).split('\n');
+  let html = '', list = false;
+  const inline = (t) => t
+    .replace(/\*\*(.+?)\*\*/g, '<b>$1</b>')
+    .replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g, (m, a, u) => `<a href="${u}" target="_blank" rel="noopener">${a}</a>`)
+    .replace(/(^|\s)(https?:\/\/[^\s<]+)/g, (m, sp, u) => `${sp}<a href="${u}" target="_blank" rel="noopener">${u.length > 40 ? u.slice(0, 40) + '…' : u}</a>`);
+  for (const raw of lines) {
+    const l = raw.trimEnd();
+    if (/^#{1,4}\s/.test(l)) { if (list) { html += '</ul>'; list = false; } html += `<h3 class="md-h">${inline(l.replace(/^#+\s/, ''))}</h3>`; continue; }
+    if (/^\s*[-*•]\s/.test(l)) { if (!list) { html += '<ul class="md-ul">'; list = true; } html += `<li>${inline(l.replace(/^\s*[-*•]\s/, ''))}</li>`; continue; }
+    if (/^\s*\d+[.)]\s/.test(l)) { if (!list) { html += '<ul class="md-ul">'; list = true; } html += `<li>${inline(l.replace(/^\s*\d+[.)]\s/, ''))}</li>`; continue; }
+    if (list) { html += '</ul>'; list = false; }
+    if (l.trim()) html += `<p>${inline(l)}</p>`;
+  }
+  if (list) html += '</ul>';
+  return html;
+}
+function sourcesBlock(sources) {
+  if (!sources?.length) return '';
+  return `<details class="block"><summary><b>Sources (${sources.length})</b></summary><div class="sources" style="margin-top:10px">${sources.map((s, i) => `<span>[${i + 1}] <a href="${esc(safeUrl(s.url))}" target="_blank" rel="noopener">${esc(s.title || s.url)}</a></span>`).join('')}</div></details>`;
+}
+function answerHtml(m) {
+  const d = m.data || {};
+  if (d.format === 'markdown') return `<div class="answer"><div class="summary md">${md(m.content)}</div>${sourcesBlock(d.sources)}${answerTools()}</div>`;
+  return renderAnswer(Object.keys(d).length ? d : { summary: m.content });
+}
+const answerTools = () => `<div class="row wrap"><button class="btn small" data-save-trip>Save as trip</button><span class="small muted">Answers come from the linked sources and can change. Confirm before you book.</span></div>`;
+
 async function Planner(main, r) {
   const chats = await api.list('planner_chats', { order: 'updated_at' });
   let chatId = r.id || null;
+  let mode = r.q.get('mode') || 'plan';
   const used = await api.plannerUsage();
   const limit = planLimit();
-  const home = S.profile.home_country || 'your country';
+  const home = S.profile.passport_country || S.profile.home_country || 'your country';
+  const t = tier();
   main.innerHTML = `
-  <div class="page-head"><div><span class="eyebrow">AI planner${premium() ? ' · Premium' : ''}</span><h1>Plan your next move</h1>
-    <p>Researches current documents, agents, places, reviews and prices for a ${esc(home)} passport, with links to every source.</p></div>
-    <div class="row"><span class="badge" id="usage">${used} of ${limit} plans this month</span><a class="btn small" href="#/planner">${icon('plus', 16)} New plan</a></div></div>
-  <div class="planner ${!chatId && chats.length && innerWidth < 860 ? '' : ''}" id="pl">
-    <aside class="history" aria-label="Plan history">
-      ${chats.length ? chats.map((c) => `<a href="#/planner/${c.id}" ${c.id === chatId ? 'aria-current="true"' : ''}><b>${esc(c.title)}</b><br><span class="date">${fmtDate(c.updated_at)}</span></a>`).join('') : '<p class="small muted">No plans yet.</p>'}
+  <div class="page-head"><div><span class="eyebrow">Assistant · Claude ${t === 'pro' ? 'Sonnet' : 'Haiku'}${t !== 'free' ? ' · ' + t[0].toUpperCase() + t.slice(1) : ''}</span><h1>Plan your next move</h1>
+    <p>Live answers with sources: documents for a ${esc(home)} passport, recommended agents, places and reviews, prices, money and journaling help.</p></div>
+    <div class="row wrap"><span class="badge" id="usage">${used} of ${limit} questions this month</span><a class="btn small" href="#/planner">${icon('plus', 16)} New chat</a></div></div>
+  <div class="planner" id="pl">
+    <aside class="history" aria-label="Chat history">
+      ${chats.length ? chats.map((c) => `<a href="#/planner/${c.id}" ${c.id === chatId ? 'aria-current="true"' : ''}><b>${esc(c.title)}</b><br><span class="date">${fmtDate(c.updated_at)}</span></a>`).join('') : '<p class="small muted">Your chats appear here.</p>'}
     </aside>
     <section class="chat">
-      ${chats.length ? `<button class="btn small ghost" id="showhist" style="align-self:flex-start" hidden>Plan history (${chats.length})</button>` : ''}
-      <div class="msgs" id="msgs"></div>
+      <div class="row wrap" role="group" aria-label="What do you need?">
+        ${[['plan', 'Plan a trip'], ['money', 'Money & exchange'], ['journal', 'Journal help']].map(([k, l]) => `<button class="chip" data-mode="${k}" aria-pressed="${k === mode}">${l}</button>`).join('')}
+        ${chats.length ? `<button class="chip" id="showhist">History (${chats.length})</button>` : ''}
+      </div>
+      <div class="msgs" id="msgs" aria-live="polite"></div>
       <form class="composer" id="ask">
-        <label class="sr" for="q">Ask the planner</label>
-        <textarea class="input" id="q" rows="1" maxlength="1200" placeholder="Where do you want to go, when, with what budget?"></textarea>
+        <label class="sr" for="q">Ask the assistant</label>
+        <textarea class="input" id="q" rows="1" maxlength="2000" placeholder="Where to next? Ask anything: visas, costs, agents, places…"></textarea>
         <button class="btn dark" id="qsend" aria-label="Send">${icon('send')}</button>
       </form>
     </section>
   </div>`;
-  if (innerWidth < 860 && chats.length) { const b = $('#showhist'); b.hidden = false; b.onclick = () => $('#pl').classList.toggle('show-history'); }
+  const sh = $('#showhist'); if (sh) sh.onclick = () => $('#pl').classList.toggle('show-history');
+  $$('[data-mode]').forEach((b) => b.onclick = () => { mode = b.dataset.mode; $$('[data-mode]').forEach((x) => x.setAttribute('aria-pressed', String(x === b))); $('#q').focus(); });
   const msgs = $('#msgs');
+  const SUGGEST = {
+    plan: [`What documents do I need to travel from ${home} to Zanzibar?`, 'Plan 5 days in Etosha for two under N$15,000', 'Best tour agents for Victoria Falls, with reviews'],
+    money: ['Convert N$5,000 to Tanzanian shillings and tell me daily costs in Zanzibar', 'Cash or card in Cape Town? Fees for a Namibian card'],
+    journal: ['Turn these notes into a 528-character story: sunrise at Dune 45, cold sand, met Anna from Germany'],
+  };
   const showEmpty = () => {
-    msgs.innerHTML = `<div class="card stack"><h2>What’s your next move?</h2><p class="muted" style="margin:0">Try one of these, or describe your own trip.</p>
-      <div class="suggest">${[
-        `What documents do I need to travel from ${home} to Zanzibar?`,
-        'Plan 5 days in Etosha for two under N$15,000',
-        'Best tour agents for a Victoria Falls trip, with reviews',
-        'Cheapest way to get from Windhoek to Cape Town next month',
-      ].map((s) => `<button class="chip" type="button" data-s="${esc(s)}">${esc(s)}</button>`).join('')}</div></div>`;
-    $$('[data-s]', msgs).forEach((b) => b.addEventListener('click', () => { $('#q').value = b.dataset.s; $('#ask').requestSubmit(); }));
+    msgs.innerHTML = `<div class="card stack"><h2>What’s your next move?</h2><div class="suggest">${Object.values(SUGGEST).flat().map((x) => `<button class="chip" type="button" data-s="${esc(x)}">${esc(x)}</button>`).join('')}</div></div>`;
+    $$('[data-s]', msgs).forEach((b) => b.onclick = () => { $('#q').value = b.dataset.s; $('#ask').requestSubmit(); });
   };
   const bind = () => {
-    $$('[data-pin]', msgs).forEach((b) => b.onclick = async () => {
-      try {
-        const [p] = await placeSearch(b.dataset.pin);
-        if (!p) { toast('Could not find that place on the map'); return; }
-        await api.insert('pins', { kind: 'saved', name: b.dataset.pin.slice(0, 120), lat: p.lat, lng: p.lng, note: 'Saved from the planner' });
-        toast('Pinned on your map'); b.disabled = true; b.textContent = 'Pinned';
-      } catch (e) { toast(e.message); }
-    });
     $$('[data-save-trip]', msgs).forEach((b) => b.onclick = async () => {
       const chat = chats.find((c) => c.id === chatId);
       const dest = prompt('Destination for this trip?', chat?.title?.slice(0, 80) || '');
       if (!dest) return;
-      const t = await api.insert('trips', { destination: dest.slice(0, 120), notes: `From planner: ${chat?.title || ''}`.slice(0, 2000) });
-      location.hash = `#/trips/${t.id}`;
+      const tr = await api.insert('trips', { destination: dest.slice(0, 120), notes: `From the assistant: ${chat?.title || ''}`.slice(0, 2000) });
+      location.hash = `#/trips/${tr.id}`;
+    });
+    $$('[data-pin]', msgs).forEach((b) => b.onclick = async () => {
+      try { const [p] = await placeSearch(b.dataset.pin); if (!p) return toast('Could not find that place');
+        await api.insert('pins', { kind: 'saved', name: b.dataset.pin.slice(0, 120), lat: p.lat, lng: p.lng, note: 'Saved from the assistant' }); toast('Pinned on your map'); b.disabled = true; } catch (e) { toast(e.message); }
     });
   };
   if (chatId) {
     const list = await api.list('planner_messages', { order: 'created_at', asc: true, eq: ['chat_id', chatId] });
-    msgs.innerHTML = list.map((m) => (m.role === 'user' ? `<div class="bubble-user">${esc(m.content)}</div>` : renderAnswer(m.data || { summary: m.content }))).join('');
+    msgs.innerHTML = list.map((m) => (m.role === 'user' ? `<div class="bubble-user">${esc(m.content)}</div>` : answerHtml(m))).join('');
     bind();
+    msgs.lastElementChild?.scrollIntoView({ block: 'end' });
   } else showEmpty();
   if (r.q.get('q')) $('#q').value = r.q.get('q');
   const q = $('#q');
+  q.addEventListener('input', () => { q.style.height = 'auto'; q.style.height = Math.min(q.scrollHeight, 180) + 'px'; });
   q.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); $('#ask').requestSubmit(); } });
   $('#ask').addEventListener('submit', async (e) => {
     e.preventDefault();
     const text = q.value.trim(); if (!text) return;
-    if (!DEMO && window.puter && !puter.auth.isSignedIn()) {
-      try { await puter.auth.signIn(); } catch { toast('Sign in to Puter (free) to use the planner'); return; }
-    }
     if (!chatId) msgs.innerHTML = '';
-    msgs.insertAdjacentHTML('beforeend', `<div class="bubble-user">${esc(text)}</div><div class="thinking" id="think"><i></i><i></i><i></i> Researching current sources…</div>`);
-    q.value = ''; $('#qsend').disabled = true;
+    msgs.insertAdjacentHTML('beforeend', `<div class="bubble-user">${esc(text)}</div>
+      <div class="answer live"><div class="thinking"><i></i><i></i><i></i> <span>Thinking…</span></div><div class="summary md" hidden></div><div class="srcs"></div></div>`);
+    const box = msgs.lastElementChild, sum = $('.summary', box), think = $('.thinking span', box);
+    box.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    q.value = ''; q.style.height = ''; $('#qsend').disabled = true;
+    let acc = '', srcs = [], raf = 0;
+    const paint = () => { raf = 0; sum.innerHTML = md(acc); };
     try {
-      const res = await api.ask(chatId, text);
-      $('#think')?.remove();
-      msgs.insertAdjacentHTML('beforeend', renderAnswer(res.data));
-      if (!chatId) { chatId = res.chat_id; history.replaceState(null, '', `#/planner/${chatId}`); chats.unshift({ id: chatId, title: text.slice(0, 60), updated_at: new Date().toISOString() }); }
-      $('#usage').textContent = `${res.used ?? (await api.plannerUsage())} of ${res.limit ?? limit} plans this month`;
+      await api.askStream(chatId, text, mode, (ev) => {
+        if (ev.type === 'start' && !chatId) { chatId = ev.chat_id; history.replaceState(null, '', `#/planner/${chatId}`); chats.unshift({ id: chatId, title: text.slice(0, 60), updated_at: new Date().toISOString() }); }
+        else if (ev.type === 'search') think.textContent = `Searching: ${ev.query || 'the web'}…`;
+        else if (ev.type === 'text') { if (sum.hidden) { sum.hidden = false; $('.thinking', box).remove(); } acc += ev.text; if (!raf) raf = requestAnimationFrame(paint); }
+        else if (ev.type === 'sources') srcs = ev.sources;
+        else if (ev.type === 'demo') { box.outerHTML = renderAnswer(ev.data); }
+        else if (ev.type === 'done') {
+          if (ev.used != null) $('#usage').textContent = `${ev.used} of ${ev.limit} questions this month`;
+          if (box.isConnected) { cancelAnimationFrame(raf); paint(); $('.srcs', box).outerHTML = sourcesBlock(ev.sources || srcs) + answerTools(); box.classList.remove('live'); }
+        }
+      });
       bind();
-      msgs.lastElementChild.scrollIntoView({ behavior: 'smooth', block: 'start' });
     } catch (err) {
-      $('#think')?.remove();
-      msgs.insertAdjacentHTML('beforeend', `<div class="notice">${esc(err.message)} ${/Premium/.test(err.message) ? '<a href="#/account">See Premium</a>' : ''}</div>`);
+      box.innerHTML = `<div class="notice">${esc(err.message)} ${err.upgrade ? '<a href="#/account">See plans & tokens</a>' : ''}</div>`;
     } finally { $('#qsend').disabled = false; }
   });
 }
@@ -709,6 +811,13 @@ async function startReminders() {
    MAP (free OpenStreetMap tiles)
    ========================================================= */
 let mapObj = null;
+function loadMapLib() {
+  if (window.maplibregl) return Promise.resolve();
+  return new Promise((res) => {
+    const css = document.createElement('link'); css.rel = 'stylesheet'; css.href = 'https://cdn.jsdelivr.net/npm/maplibre-gl@4/dist/maplibre-gl.css'; document.head.appendChild(css);
+    const js = document.createElement('script'); js.src = 'https://cdn.jsdelivr.net/npm/maplibre-gl@4/dist/maplibre-gl.js'; js.onload = res; js.onerror = res; document.head.appendChild(js);
+  });
+}
 async function MapView(main) {
   const [pins, entries] = await Promise.all([api.list('pins'), api.list('journal_entries')]);
   const all = [...pins, ...entries.filter((e) => e.lat != null).map((e) => ({ id: 'j' + e.id, kind: 'visited', name: e.title, lat: e.lat, lng: e.lng, note: e.story, journal: e.id }))];
@@ -722,6 +831,7 @@ async function MapView(main) {
     <div id="sheet"></div>
   </div>
   <p class="small muted">Map © OpenStreetMap contributors, tiles by OpenFreeMap. Place search by Photon.</p>`;
+  await loadMapLib();
   if (!window.maplibregl) { $('#map').innerHTML = '<p class="muted" style="padding:20px;color:#fff">The map could not load. Check your connection.</p>'; return; }
   mapObj?.remove();
   const center = all.length ? [all[0].lng, all[0].lat] : [17.08, -22.56];
@@ -777,7 +887,7 @@ async function Journal(main, r) {
   let ci = 0;
   main.innerHTML = `
   <div class="page-head"><div><span class="eyebrow">Journal</span><h1>Your travel journal</h1><p>Up to 6 photos, the place, your rating, a 528-character story and the people you met.</p></div>
-    <button class="btn primary" id="newj">${icon('plus', 18)} New entry</button></div>
+    <div class="row wrap"><a class="btn ghost" href="#/album">${icon('album', 18)} Album</a><button class="btn primary" id="newj">${icon('plus', 18)} New entry</button></div></div>
   ${entries.length ? `<div class="grid g2">${entries.map((e) => `<a class="card entry" href="#/journal/${e.id}" style="text-decoration:none;color:inherit">
       <div class="cover" style="${e.photos?.length ? `background-image:url('${esc(covers[ci++])}')` : ''}"></div>
       <div class="stack" style="gap:4px"><h2>${esc(e.title)}</h2><span class="small muted">${esc(e.place_name || '')}${e.visited_on ? ' · ' + fmtDate(e.visited_on) : ''}</span>
@@ -792,21 +902,66 @@ async function Journal(main, r) {
 async function JournalEntry(main, id) {
   const e = await api.get('journal_entries', id);
   if (!e) { main.innerHTML = '<div class="empty">Entry not found. <a href="#/journal">Back</a></div>'; return; }
-  const urls = await api.photoUrls(e.photos);
+  const mine = e.user_id === S.user.id || DEMO;
+  const [urls, comments] = await Promise.all([api.photoUrls(e.photos), api.comments(id)]);
+  const people = await api.profilesById([e.user_id, ...comments.map((c) => c.user_id)]);
+  const author = people[e.user_id];
+  const name = (p) => (p ? (p.display_name || '@' + (p.username || 'traveller')) : 'Traveller');
   main.innerHTML = `
-  <div class="page-head"><div><a href="#/journal" class="small">← Journal</a><h1>${esc(e.title)}</h1><p>${esc(e.place_name || '')}${e.visited_on ? ' · ' + fmtDate(e.visited_on) : ''}</p></div>
-    <div class="row"><button class="btn" id="jedit">Edit</button><button class="btn ghost" id="jdel">Delete</button></div></div>
+  <div class="page-head"><div><a href="#/${mine ? 'journal' : 'explore'}" class="small">← ${mine ? 'Journal' : 'Explore'}</a><h1>${esc(e.title)}</h1>
+    <p>${mine ? '' : `By <b>${esc(name(author))}</b>${author?.home_country ? ' · from ' + esc(author.home_country) : ''} · `}${esc(e.place_name || '')}${e.visited_on ? ' · ' + fmtDate(e.visited_on) : ''}</p></div>
+    <div class="row wrap">${mine ? '<button class="btn" id="jedit">Edit</button><button class="btn ghost" id="jdel">Delete</button>'
+      : `<a class="btn dark" href="#/messages?to=${e.user_id}">${icon('chat', 16)} Message</a><button class="btn ghost" id="jrep">Report</button>`}</div></div>
   <div class="grid g2" style="align-items:start">
-    <section class="photos">${urls.map((u) => `<div class="ph" style="background-image:url('${esc(u)}')" role="img" aria-label="Trip photo"></div>`).join('') || '<div class="empty" style="grid-column:1/-1">No photos</div>'}</section>
+    <section class="photos">${urls.map((u, i) => `<button class="ph" data-view="${i}" style="background-image:url('${esc(u)}')" aria-label="Open photo ${i + 1}"></button>`).join('') || '<div class="empty" style="grid-column:1/-1">No photos</div>'}</section>
     <section class="stack">
       <div class="card stack">${e.rating ? `<span style="color:var(--accent);font-size:22px">${'★'.repeat(e.rating)}<span style="color:#D6D2CA">${'★'.repeat(5 - e.rating)}</span></span>` : ''}
-        <p style="margin:0;white-space:pre-wrap">${esc(e.story || 'No story yet.')}</p><span class="badge">${e.is_public ? 'Public' : 'Only me'}</span></div>
-      <div class="card"><h2>People I met</h2>${(e.people || []).map((p) => `<div class="person"><span class="avatar">${esc((p.name || '?')[0].toUpperCase())}</span><span style="flex:1"><b>${esc(p.name)}</b><br><span class="small muted">From ${esc(p.from_country || 'unknown')}</span></span>${p.username ? `<span class="badge ok">@${esc(p.username)}</span>` : '<span class="badge">Not on the app</span>'}</div>`).join('') || '<p class="muted">Nobody added.</p>'}</div>
-      ${e.lat != null ? `<a class="btn ghost" href="#/map">See on my map</a>` : ''}
+        <p style="margin:0;white-space:pre-wrap">${esc(e.story || 'No story yet.')}</p>${mine ? `<span class="badge">${e.is_public ? 'Public' : 'Only me'}</span>` : ''}</div>
+      <div class="card"><h2>People met</h2>${(e.people || []).map((p) => `<div class="person"><span class="avatar">${esc((p.name || '?')[0].toUpperCase())}</span><span style="flex:1"><b>${esc(p.name)}</b><br><span class="small muted">From ${esc(p.from_country || 'unknown')}</span></span>${p.username ? `<span class="badge ok">@${esc(p.username)}</span>` : '<span class="badge">Not on the app</span>'}</div>`).join('') || '<p class="muted">Nobody added.</p>'}</div>
+      ${e.lat != null && mine ? `<a class="btn ghost" href="#/map">See on my map</a>` : ''}
+      <div class="card stack" id="comments"><h2>Comments (${comments.length})</h2>
+        ${comments.map((c) => `<div class="person"><span class="avatar">${esc(name(people[c.user_id])[0].toUpperCase())}</span><span style="flex:1"><b>${esc(name(people[c.user_id]))}</b><br>${esc(c.body)}<br><span class="small muted">${fmtDate(c.created_at)}</span></span>${c.user_id === S.user.id || mine ? `<button class="btn small ghost" data-cdel="${c.id}" aria-label="Delete comment">✕</button>` : ''}</div>`).join('') || '<p class="muted" style="margin:0">No comments yet.</p>'}
+        ${(e.is_public || mine) ? `<form class="row" id="cform"><label class="sr" for="cbody">Comment</label><input class="input" id="cbody" maxlength="300" placeholder="Say something nice…"><button class="btn dark">Post</button></form>
+        <span class="small muted">${mine || premium() ? 'Comments are free for you.' : 'Commenting uses 1 token.'}</span>` : ''}
+      </div>
     </section>
   </div>`;
-  $('#jedit').onclick = () => editEntry(e);
-  $('#jdel').onclick = async () => { if (confirm('Delete this entry and its photos?')) { await api.remove('journal_entries', id); location.hash = '#/journal'; } };
+  $$('[data-view]').forEach((b) => b.onclick = () => viewer(urls, +b.dataset.view));
+  if (mine) {
+    $('#jedit').onclick = () => editEntry(e);
+    $('#jdel').onclick = async () => { if (confirm('Delete this entry and its photos?')) { await api.remove('journal_entries', id); location.hash = '#/journal'; } };
+  } else $('#jrep').onclick = () => reportFlow('entry', id, e.user_id);
+  const cf = $('#cform');
+  if (cf) cf.onsubmit = async (ev) => { ev.preventDefault(); const b = $('#cbody').value.trim(); if (!b) return; try { await api.addComment(id, b); toast('Comment posted'); render(); } catch (err) { toast(err.message); } };
+  $$('[data-cdel]').forEach((b) => b.onclick = async () => { await sb.from('journal_comments').delete().eq('id', b.dataset.cdel); render(); });
+}
+
+/* full-screen photo viewer with swipe/arrow keys */
+function viewer(urls, i = 0) {
+  if (!urls.length) return;
+  const close = modal(`<div class="viewer"><img id="vimg" alt="Trip photo"><div class="row between"><button class="btn small ghost" id="vprev" aria-label="Previous photo">←</button><span class="small muted" id="vcount"></span><button class="btn small ghost" id="vnext" aria-label="Next photo">→</button></div><button class="btn small" data-close>Close</button></div>`, (p) => {
+    const show = () => { $('#vimg', p).src = urls[i]; $('#vcount', p).textContent = `${i + 1} of ${urls.length}`; };
+    $('#vprev', p).onclick = () => { i = (i - 1 + urls.length) % urls.length; show(); };
+    $('#vnext', p).onclick = () => { i = (i + 1) % urls.length; show(); };
+    let x0 = null;
+    $('#vimg', p).addEventListener('touchstart', (e) => { x0 = e.touches[0].clientX; }, { passive: true });
+    $('#vimg', p).addEventListener('touchend', (e) => { if (x0 == null) return; const dx = e.changedTouches[0].clientX - x0; if (Math.abs(dx) > 40) (dx < 0 ? $('#vnext', p) : $('#vprev', p)).click(); x0 = null; });
+    p.addEventListener('keydown', (e) => { if (e.key === 'ArrowLeft') $('#vprev', p).click(); if (e.key === 'ArrowRight') $('#vnext', p).click(); });
+    show();
+  });
+  return close;
+}
+
+function reportFlow(type, id, userId) {
+  modal(`<h2>Report or block</h2><form class="stack" id="rf" style="margin-top:12px">
+    <div class="field"><label for="rr">What's wrong?</label><textarea class="input" id="rr" maxlength="500" required placeholder="Spam, harassment, fake profile…"></textarea></div>
+    <label class="row"><input type="checkbox" id="rb"> Also block this traveller</label>
+    <div class="row"><button class="btn primary" style="flex:1">Send report</button><button type="button" class="btn ghost" data-close>Cancel</button></div></form>`, (p, close) => {
+    $('#rf', p).onsubmit = async (e) => {
+      e.preventDefault();
+      try { await api.report(type, id, $('#rr', p).value.trim()); if ($('#rb', p).checked && userId) await api.block(userId); close(); toast('Thanks. We’ll review it.'); } catch (err) { toast(err.message); }
+    };
+  });
 }
 
 function editEntry(e = null) {
@@ -890,54 +1045,258 @@ function editEntry(e = null) {
 /* =========================================================
    ACCOUNT, PREMIUM, PRIVACY
    ========================================================= */
-async function Account(main) {
+const COUNTRIES = (() => { try { const dn = new Intl.DisplayNames(['en'], { type: 'region' }); const codes = 'AF AL DZ AD AO AG AR AM AU AT AZ BS BH BD BB BY BE BZ BJ BT BO BA BW BR BN BG BF BI CV KH CM CA CF TD CL CN CO KM CG CD CR CI HR CU CY CZ DK DJ DM DO EC EG SV GQ ER EE SZ ET FJ FI FR GA GM GE DE GH GR GD GT GN GW GY HT HN HK HU IS IN ID IR IQ IE IL IT JM JP JO KZ KE KI KW KG LA LV LB LS LR LY LI LT LU MO MG MW MY MV ML MT MH MR MU MX FM MD MC MN ME MA MZ MM NA NR NP NL NZ NI NE NG MK NO OM PK PW PS PA PG PY PE PH PL PT QA RO RU RW KN LC VC WS SM ST SA SN RS SC SL SG SK SI SB SO ZA KR SS ES LK SD SR SE CH SY TW TJ TZ TH TL TG TO TT TN TR TM TV UG UA AE GB US UY UZ VU VA VE VN YE ZM ZW'.split(' '); return codes.map((c) => dn.of(c)).sort(); } catch { return []; } })();
+const countryOptions = (sel) => `<option value="">Choose…</option>${COUNTRIES.map((c) => `<option ${c === sel ? 'selected' : ''}>${esc(c)}</option>`).join('')}`;
+
+async function Account(main, r) {
   const p = S.profile = await api.profile();
-  const used = await api.plannerUsage();
+  const [used, bal, ledger] = await Promise.all([api.plannerUsage(), api.balance(), api.ledger()]);
+  const t = tier();
+  const invite = `${location.origin}${location.pathname}?ref=${p.referral_code || ''}`;
+  let mfa = null;
+  if (!DEMO) { const { data } = await sb.auth.mfa.listFactors(); mfa = data?.totp?.find((f) => f.status === 'verified') || null; }
+  const planCard = (key, name, price, yearly, perks, cta) => `<div class="card stack ${key === t ? 'dark' : ''}" style="padding:18px">
+    <div class="row between"><b style="font-size:18px">${name}</b>${key === t ? '<span class="badge dark">Current</span>' : ''}</div>
+    <span class="price">${price}</span>${yearly ? `<span class="small ${key === t ? '' : 'muted'}">${yearly}</span>` : ''}
+    <ul style="margin:0;padding-left:18px">${perks.map((x) => `<li>${x}</li>`).join('')}</ul>${cta}</div>`;
   main.innerHTML = `
-  <div class="page-head"><div><span class="eyebrow">Account</span><h1>${esc(p.display_name || 'Your account')}</h1><p>${esc(S.user.email || '')}</p></div>
+  <div class="page-head"><div><span class="eyebrow">Account · ${t.toUpperCase()}</span><h1>${esc(p.display_name || 'Your account')}</h1><p>${esc(S.user.email || '')}${p.username ? ' · @' + esc(p.username) : ''}</p></div>
     <button class="btn ghost" id="out">Sign out</button></div>
+
   <div class="grid g2" style="align-items:start">
     <section class="stack">
-      <div class="card stack"><h2>Profile</h2>
-        <div class="field"><label for="pname">Name</label><input class="input" id="pname" maxlength="60" value="${esc(p.display_name || '')}"></div>
-        <div class="field"><label for="puser">Username (so travellers you meet can link you)</label><input class="input" id="puser" maxlength="20" placeholder="e.g. gmega" value="${esc(p.username || '')}"></div>
+      <form class="card stack" id="pform"><h2>Profile</h2>
+        <div class="grid g2">
+          <div class="field"><label for="pname">Name</label><input class="input" id="pname" maxlength="60" value="${esc(p.display_name || '')}"></div>
+          <div class="field"><label for="puser">Username</label><input class="input" id="puser" maxlength="20" placeholder="e.g. gmega" value="${esc(p.username || '')}"></div>
+        </div>
+        <div class="field"><label for="pbio">Short bio</label><input class="input" id="pbio" maxlength="160" value="${esc(p.bio || '')}" placeholder="Producer, explorer, coffee lover"></div>
         <div class="field"><label>Home country</label>
           <div class="row" style="min-height:48px;padding:0 14px;border-radius:14px;background:var(--soft)">${icon('lock', 16)}<b>${esc(p.home_country || 'Detecting…')}</b></div>
-          <span class="small muted">Set from where this account was created. It can’t be changed, so your document checks always match your passport country.</span></div>
-        <button class="btn primary" id="psave">Save profile</button></div>
+          <span class="small muted">Set from where this account was created. It can’t be changed.</span></div>
+        <div class="field"><label>Residential address</label><div id="paddr"></div>${p.residential_address ? `<span class="small muted">Current: ${esc(p.residential_address)}</span>` : ''}</div>
+        <h3 style="margin-top:6px">${icon('passport', 18)} Travel documents</h3>
+        <div class="grid g2">
+          <div class="field"><label for="pnat">Nationality</label><select class="input" id="pnat">${countryOptions(p.nationality)}</select></div>
+          <div class="field"><label for="ppass">Passport issued by</label><select class="input" id="ppass">${countryOptions(p.passport_country || p.home_country)}</select></div>
+          <div class="field"><label for="pexp">Passport expiry date</label><input class="input" id="pexp" type="date" value="${esc(p.passport_expiry || '')}"></div>
+          <div class="field"><label for="pcur">Preferred currency</label><input class="input" id="pcur" maxlength="3" value="${esc(p.preferred_currency || homeCurrency(p.home_country_code))}" autocapitalize="characters"></div>
+        </div>
+        <p class="small muted" style="margin:0">We never ask for your passport number. The assistant uses the issuing country and expiry date to check entry rules.</p>
+        <h3 style="margin-top:6px">Emergency contact</h3>
+        <div class="grid g2">
+          <div class="field"><label for="pen">Name</label><input class="input" id="pen" maxlength="80" value="${esc(p.emergency_name || '')}"></div>
+          <div class="field"><label for="pep">Phone</label><input class="input" id="pep" maxlength="30" inputmode="tel" value="${esc(p.emergency_phone || '')}"></div>
+        </div>
+        <button class="btn primary">Save profile</button>
+      </form>
+
+      <div class="card stack"><h2>${icon('shield', 20)} Security</h2>
+        <div class="row between"><span>Two-step sign-in (optional)<br><span class="small muted">${mfa ? 'On: a code from your authenticator app is needed at sign-in.' : 'Add a code from an authenticator app (Google Authenticator, Authy…).'}</span></span>
+          <button class="btn small ${mfa ? 'ghost' : 'dark'}" id="mfa">${mfa ? 'Turn off' : 'Turn on'}</button></div>
+        <div class="row between"><span>Password</span><button class="btn small ghost" id="pw">Change password</button></div>
+      </div>
+
       <div class="card stack"><h2>Privacy</h2>
         <div class="row between"><span>Public journal<br><span class="small muted">Lets others see entries you mark public</span></span><button class="switch" role="switch" data-f="public_journal" aria-checked="${p.public_journal}" aria-label="Public journal"></button></div>
-        <div class="row between"><span>Let people tag me<br><span class="small muted">Others can link you in “people I met”</span></span><button class="switch" role="switch" data-f="allow_tags" aria-checked="${p.allow_tags}" aria-label="Let people tag me"></button></div>
-        <p class="small muted" style="margin:0">The planner uses Perplexity’s Sonar search AI through Puter. The first time, you sign in with a free Puter account, which includes a free AI allowance. Don’t include passport numbers or other private details in questions.</p>
+        <div class="row between"><span>Let people tag me<br><span class="small muted">Others can link you in “people met”</span></span><button class="switch" role="switch" data-f="allow_tags" aria-checked="${p.allow_tags}" aria-label="Let people tag me"></button></div>
+        <p class="small muted" style="margin:0">The assistant is powered by Claude. Don’t include passport numbers or other private details in questions.</p>
       </div>
     </section>
+
     <section class="stack">
-      ${premium() ? `<div class="card dark stack"><span class="badge dark">PREMIUM</span><h2 style="color:var(--on-dark)">You’re on Premium</h2><p class="muted" style="margin:0">Active until ${fmtDate(p.premium_until)}. ${used} of ${C.PREMIUM_PLANS_PER_MONTH} plans used this month.</p><button class="btn primary" data-pay="monthly">Add a month · N$${C.PRICE_MONTHLY}</button></div>`
-        : `<div class="card accent stack"><span class="eyebrow" style="color:var(--ink)">SpeedCurrency Premium</span>
-          <h2>${C.PREMIUM_PLANS_PER_MONTH} researched plans a month, no ads.</h2>
-          <ul style="margin:0;padding-left:18px"><li>AI planner with documents, agents, places, reviews and prices</li><li>Unlimited trips, reminders and journal entries</li><li>No ads</li></ul>
-          <div class="grid g2"><div class="card stack" style="padding:14px"><span class="small">Monthly</span><span class="price">N$${C.PRICE_MONTHLY}</span><button class="btn dark" data-pay="monthly">Choose monthly</button></div>
-          <div class="card stack" style="padding:14px"><span class="small">Yearly · save ${Math.round((1 - C.PRICE_YEARLY / (C.PRICE_MONTHLY * 12)) * 100)}%</span><span class="price">N$${money(C.PRICE_YEARLY, 0)}</span><button class="btn dark" data-pay="yearly">Choose yearly</button></div></div>
-          <span class="small">Card or mobile money through DPO Pay. Free plan: ${C.FREE_PLANS_PER_MONTH} plans a month (${used} used).</span></div>`}
+      <div class="card stack" id="tokens"><h2>${icon('token', 20)} Tokens: ${bal}</h2>
+        <p class="muted" style="margin:0">Tokens pay for messages (1), comments (1) and extra assistant questions (${C.TOKENS_PER_EXTRA_QUESTION}). Messaging and comments are free on Premium and Pro.</p>
+        <div class="field"><label for="inv">Your invite link: you get 50 tokens per friend who joins, and they get 40.</label>
+          <div class="row"><input class="input" id="inv" readonly value="${esc(invite)}"><button class="btn dark" id="share">Share</button></div></div>
+        <details><summary class="small"><b>Recent activity</b></summary><div class="list" style="margin-top:6px">${ledger.map((x) => `<div class="row between"><span>${esc(x.reason)}<br><span class="small muted">${fmtDate(x.created_at)}</span></span><b style="color:${x.delta > 0 ? 'var(--ok)' : 'var(--accent-dark)'}">${x.delta > 0 ? '+' : ''}${x.delta}</b></div>`).join('')}</div></details>
+      </div>
+
+      <div class="stack" id="plans"><h2>Plans</h2><p class="small muted" style="margin:0">${used} of ${planLimit()} assistant questions used this month.</p>
+        ${planCard('free', 'Free', 'N$0', '', [`${C.FREE_PLANS_PER_MONTH} Claude questions a month`, 'Journal, map, trips, converter', '20 tokens to start (40 if invited)', 'Ads shown'], '')}
+        ${planCard('premium', 'Premium', `N$${C.PRICE_MONTHLY}/mo`, `or N$${money(C.PRICE_YEARLY, 0)}/year`, [`${C.PREMIUM_PLANS_PER_MONTH} Claude questions a month with live web search`, 'Free messaging and comments', '100 bonus tokens each payment', 'Digital album, no ads'],
+          t === 'free' ? `<div class="row wrap"><button class="btn primary" data-pay="monthly">Monthly</button><button class="btn" data-pay="yearly">Yearly</button></div>` : '')}
+        ${planCard('pro', 'Pro', `N$${C.PRICE_PRO_MONTHLY}/mo`, `or N$${money(C.PRICE_PRO_YEARLY, 0)}/year`, [`${C.PRO_PLANS_PER_MONTH} questions on Claude Sonnet, deeper research`, 'Tailored adventures, money and journal coaching', '300 bonus tokens each payment', 'Everything in Premium'],
+          t !== 'pro' ? `<div class="row wrap"><button class="btn primary" data-pay="pro_monthly">Monthly</button><button class="btn" data-pay="pro_yearly">Yearly</button></div>` : '')}
+        ${premium() ? `<p class="small muted">Active until ${fmtDate(p.premium_until)}.</p>` : ''}
+        <span class="small muted">Card or mobile money through DPO Pay.</span>
+      </div>
       ${adBlock()}
     </section>
   </div>`;
-  $('#out').onclick = async () => { await api.signOut(); S.user = null; S.profile = null; location.hash = '#/auth'; render(); };
-  $('#psave').onclick = async () => {
+  let addr = p.residential_address ? { name: p.residential_address, lat: p.residential_lat, lng: p.residential_lng } : null;
+  placePicker($('#paddr'), (pl) => { addr = { name: (pl.name + (pl.detail ? ', ' + pl.detail : '')).slice(0, 200), lat: pl.lat, lng: pl.lng }; });
+  $('#out').onclick = async () => { await api.signOut(); S.user = null; S.profile = null; CACHE.clear(); location.hash = '#/auth'; render(); };
+  $('#pform').onsubmit = async (e) => {
+    e.preventDefault();
     const username = $('#puser').value.trim().toLowerCase();
     if (username && !/^[a-z0-9_]{3,20}$/.test(username)) { toast('Username: 3–20 letters, numbers or _'); return; }
-    try { await api.updateProfile({ display_name: $('#pname').value.trim(), username: username || null }); S.profile = await api.profile(); toast('Profile saved'); } catch (e) { toast(e.message); }
+    const cur = $('#pcur').value.trim().toUpperCase();
+    try {
+      await api.updateProfile({
+        display_name: $('#pname').value.trim(), username: username || null, bio: $('#pbio').value.trim() || null,
+        residential_address: addr?.name || null, residential_lat: addr?.lat ?? null, residential_lng: addr?.lng ?? null,
+        nationality: $('#pnat').value || null, passport_country: $('#ppass').value || null, passport_expiry: $('#pexp').value || null,
+        emergency_name: $('#pen').value.trim() || null, emergency_phone: $('#pep').value.trim() || null, preferred_currency: /^[A-Z]{3}$/.test(cur) ? cur : null,
+      });
+      S.profile = await api.profile(); toast('Profile saved');
+    } catch (err) { toast(err.message); }
   };
   $$('[data-f]').forEach((b) => b.onclick = async () => { const v = b.getAttribute('aria-checked') !== 'true'; b.setAttribute('aria-checked', String(v)); await api.updateProfile({ [b.dataset.f]: v }); });
   $$('[data-pay]').forEach((b) => b.onclick = async () => { b.disabled = true; try { location.href = await api.pay(b.dataset.pay); } catch (e) { toast(e.message); b.disabled = false; } });
+  $('#share').onclick = async () => {
+    const text = `Join me on SpeedCurrency: plan trips with a Claude-powered assistant, journal your travels and convert money. ${invite}`;
+    if (navigator.share) { try { await navigator.share({ title: 'SpeedCurrency', text, url: invite }); } catch { /* cancelled */ } }
+    else { try { await navigator.clipboard.writeText(invite); toast('Invite link copied'); } catch { $('#inv').select(); } }
+  };
+  $('#pw').onclick = () => modal(`<h2>Change password</h2><form class="stack" id="pwf" style="margin-top:12px"><div class="field"><label for="npw">New password</label><input class="input" id="npw" type="password" minlength="8" autocomplete="new-password" required></div><button class="btn primary">Save password</button></form>`, (pnl, close) => {
+    $('#pwf', pnl).onsubmit = async (e) => { e.preventDefault(); const { error } = await sb.auth.updateUser({ password: $('#npw', pnl).value }); if (error) toast(error.message); else { close(); toast('Password changed'); } };
+  });
+  $('#mfa').onclick = async () => {
+    if (DEMO) return toast('Two-step sign-in works once you are signed in online.');
+    if (mfa) { if (!confirm('Turn off two-step sign-in?')) return; const { error } = await sb.auth.mfa.unenroll({ factorId: mfa.id }); if (error) return toast(error.message); toast('Two-step sign-in is off'); return render(); }
+    const { data: old } = await sb.auth.mfa.listFactors();
+    for (const f of old?.all || []) if (f.status !== 'verified') await sb.auth.mfa.unenroll({ factorId: f.id });
+    const { data, error } = await sb.auth.mfa.enroll({ factorType: 'totp', friendlyName: 'SpeedCurrency' });
+    if (error) return toast(error.message);
+    modal(`<h2>Turn on two-step sign-in</h2><ol class="small" style="padding-left:18px"><li>Open your authenticator app and scan this code (or enter the key).</li><li>Type the 6-digit code it shows.</li></ol>
+      <img src="${esc(data.totp.qr_code)}" alt="QR code for your authenticator app" style="width:200px;height:200px;background:#fff;border-radius:12px;padding:8px">
+      <p class="small">Key: <code style="word-break:break-all">${esc(data.totp.secret)}</code></p>
+      <form class="stack" id="mfe"><label class="sr" for="mfec">Code</label><input class="input" id="mfec" inputmode="numeric" maxlength="6" autocomplete="one-time-code" required placeholder="123456"><button class="btn primary">Verify and turn on</button></form>`, (pnl, close) => {
+      $('#mfe', pnl).onsubmit = async (e) => {
+        e.preventDefault();
+        const { error: err } = await sb.auth.mfa.challengeAndVerify({ factorId: data.id, code: $('#mfec', pnl).value.trim() });
+        if (err) return toast('That code didn’t work. Try the newest code.');
+        close(); toast('Two-step sign-in is on'); render();
+      };
+    });
+  };
+  if (r?.q.get('tab')) $('#' + r.q.get('tab'))?.scrollIntoView({ block: 'start' });
+}
+
+/* =========================================================
+   ALBUM: every journal photo, grouped by country and year
+   ========================================================= */
+async function Album(main) {
+  const entries = (await api.list('journal_entries', { order: 'visited_on' })).filter((e) => e.photos?.length);
+  const all = entries.flatMap((e) => e.photos.map((ph) => ({ ph, e })));
+  const urls = await api.photoUrls(all.map((x) => x.ph));
+  all.forEach((x, i) => { x.url = urls[i]; });
+  const key = (e) => { const c = (e.place_name || '').split(',').pop().trim() || 'Other places'; const y = (e.visited_on || e.created_at || '').slice(0, 4); return `${c}${y ? ' · ' + y : ''}`; };
+  const groups = {};
+  for (const x of all) (groups[key(x.e)] ||= []).push(x);
+  main.innerHTML = `
+  <div class="page-head"><div><span class="eyebrow">Album</span><h1>Your travel album</h1><p>${all.length} photos from ${entries.length} journal entries, grouped by place and year.</p></div>
+    <div class="row wrap"><button class="btn dark" id="slides" ${all.length ? '' : 'disabled'}>${icon('album', 18)} Slideshow</button><a class="btn primary" href="#/journal?new=1">${icon('plus', 18)} Add photos</a></div></div>
+  ${all.length ? Object.entries(groups).map(([g, xs]) => `<section class="section"><h2>${esc(g)}</h2><div class="album">${xs.map((x) => `<button class="ph" data-i="${all.indexOf(x)}" style="background-image:url('${esc(x.url)}')" aria-label="${esc(x.e.title)}"><span>${esc(x.e.title)}</span></button>`).join('')}</div></section>`).join('')
+    : '<div class="empty">No photos yet. Add up to 6 per journal entry.</div>'}`;
+  $$('[data-i]').forEach((b) => b.onclick = () => viewer(all.map((x) => x.url), +b.dataset.i));
+  const sl = $('#slides'); if (sl) sl.onclick = () => viewer(all.map((x) => x.url), 0);
+}
+
+/* =========================================================
+   EXPLORE: public journal entries from other travellers
+   ========================================================= */
+async function Explore(main) {
+  const feed = await api.feed();
+  const people = await api.profilesById(feed.map((e) => e.user_id));
+  const covers = await api.photoUrls(feed.map((e) => e.photos?.[0]).filter(Boolean));
+  let ci = 0;
+  main.innerHTML = `
+  <div class="page-head"><div><span class="eyebrow">Explore</span><h1>Travellers’ stories</h1><p>Public journal entries. Comment, or message the traveller.</p></div>
+    <a class="btn ghost" href="#/account?tab=tokens">${icon('gift', 18)} Invite friends</a></div>
+  ${feed.length ? `<div class="grid g2">${feed.map((e) => { const a = people[e.user_id]; return `<a class="card entry" href="#/journal/${e.id}" style="text-decoration:none;color:inherit">
+      <div class="cover" style="${e.photos?.length ? `background-image:url('${esc(covers[ci++])}')` : ''}"></div>
+      <div class="stack" style="gap:4px"><span class="small muted">${esc(a?.display_name || '@' + (a?.username || 'traveller'))}${a?.home_country ? ' · ' + esc(a.home_country) : ''}</span><h2>${esc(e.title)}</h2>
+        <span class="small muted">${esc(e.place_name || '')}</span>${e.rating ? `<span style="color:var(--accent)">${'★'.repeat(e.rating)}</span>` : ''}
+        <span class="small">${esc((e.story || '').slice(0, 110))}${(e.story || '').length > 110 ? '…' : ''}</span></div></a>`; }).join('')}</div>`
+    : `<div class="empty">No public stories yet. Make one of yours public from your journal, and share your invite link so friends can join.</div>`}`;
+}
+
+/* =========================================================
+   CHATS: live direct messages between travellers
+   ========================================================= */
+async function Messages(main, r) {
+  if (DEMO) { main.innerHTML = '<div class="empty">Chats work once you are signed in online.</div>'; return; }
+  const convs = await api.conversations();
+  const others = convs.map((c) => (c.user_a === S.user.id ? c.user_b : c.user_a));
+  let toId = r.q.get('to');
+  const people = await api.profilesById([...others, toId]);
+  let active = r.id || (toId ? convs.find((c) => [c.user_a, c.user_b].includes(toId))?.id : null) || null;
+  if (active) toId = null;
+  const name = (id) => { const p = people[id]; return p ? (p.display_name || '@' + (p.username || 'traveller')) : 'Traveller'; };
+  const conv = convs.find((c) => c.id === active);
+  const otherId = conv ? (conv.user_a === S.user.id ? conv.user_b : conv.user_a) : toId;
+  main.innerHTML = `
+  <div class="page-head"><div><span class="eyebrow">Chats</span><h1>Messages</h1><p>${premium() ? 'Messaging is free on your plan.' : 'Each message uses 1 token. Free on Premium and Pro.'}</p></div>
+    <button class="btn dark" id="newchat">${icon('plus', 18)} New chat</button></div>
+  <div class="planner">
+    <aside class="history" aria-label="Conversations">${convs.length ? convs.map((c) => { const o = c.user_a === S.user.id ? c.user_b : c.user_a; return `<a href="#/messages/${c.id}" ${c.id === active ? 'aria-current="true"' : ''}><b>${esc(name(o))}</b><br><span class="date">${fmtDate(c.last_at)}</span></a>`; }).join('') : '<p class="small muted">No chats yet.</p>'}</aside>
+    <section class="chat">${otherId ? `
+      <div class="row between"><h2>${esc(name(otherId))}</h2><button class="btn small ghost" id="crep">Report or block</button></div>
+      <div class="msgs" id="dm" aria-live="polite"></div>
+      <form class="composer" id="dmf"><label class="sr" for="dmt">Message</label><textarea class="input" id="dmt" rows="1" maxlength="1000" placeholder="Write a message…"></textarea><button class="btn dark" aria-label="Send">${icon('send')}</button></form>`
+      : '<div class="empty">Pick a chat, or start a new one with a traveller’s @username.</div>'}</section>
+  </div>`;
+  $('#newchat').onclick = () => modal(`<h2>New chat</h2><form class="stack" id="ncf" style="margin-top:12px"><div class="field"><label for="ncu">Traveller’s username</label><input class="input" id="ncu" placeholder="@username" maxlength="21" required></div><button class="btn primary">Open chat</button></form>`, (p, close) => {
+    $('#ncf', p).onsubmit = async (e) => { e.preventDefault(); const f = await api.findTraveller($('#ncu', p).value.trim()); if (!f) return toast('No traveller with that username'); close(); location.hash = `#/messages?to=${f.id}`; };
+  });
+  if (!otherId) return;
+  $('#crep').onclick = () => reportFlow('user', otherId, otherId);
+  const dm = $('#dm');
+  const paint = (list) => { dm.innerHTML = list.map((m) => `<div class="${m.sender_id === S.user.id ? 'bubble-user' : 'bubble-them'}">${esc(m.body)}<span class="t">${new Date(m.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span></div>`).join('') || '<p class="small muted">Say hello 👋</p>'; dm.lastElementChild?.scrollIntoView({ block: 'end' }); };
+  let list = active ? await api.messages(active) : [];
+  paint(list);
+  if (active) {
+    const ch = sb.channel('dm-' + active).on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages', filter: `conversation_id=eq.${active}` }, (payload) => {
+      if (!list.find((m) => m.id === payload.new.id)) { list.push(payload.new); paint(list); }
+    }).subscribe();
+    cleanup = () => sb.removeChannel(ch);
+  }
+  const ta = $('#dmt');
+  ta.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); $('#dmf').requestSubmit(); } });
+  $('#dmf').onsubmit = async (e) => {
+    e.preventDefault();
+    const body = ta.value.trim(); if (!body) return;
+    ta.value = '';
+    try {
+      const convId = await api.sendMessage(otherId, body);
+      if (!active) { location.hash = `#/messages/${convId}`; return; }
+      const fresh = await api.messages(active); list = fresh; paint(list);
+    } catch (err) { ta.value = body; toast(err.message); }
+  };
 }
 
 /* =========================================================
    START
    ========================================================= */
+async function mfaGate() {
+  if (DEMO) return true;
+  const { data } = await sb.auth.mfa.getAuthenticatorAssuranceLevel();
+  if (!data || data.currentLevel === data.nextLevel || data.nextLevel !== 'aal2') return true;
+  const { data: f } = await sb.auth.mfa.listFactors();
+  const factor = f?.totp?.find((x) => x.status === 'verified');
+  if (!factor) return true;
+  return await new Promise((resolve) => {
+    modal(`<h2>Two-step check</h2><p class="muted">Enter the 6-digit code from your authenticator app.</p>
+      <form class="stack" id="mfaf" style="margin-top:12px"><label class="sr" for="mfac">Code</label>
+      <input class="input" id="mfac" inputmode="numeric" autocomplete="one-time-code" maxlength="6" pattern="[0-9]{6}" required placeholder="123456">
+      <button class="btn primary">Verify</button><button type="button" class="btn ghost" id="mfaout">Sign out instead</button></form>`, (pnl, close) => {
+      $('#mfaout', pnl).onclick = async () => { await sb.auth.signOut(); close(); resolve(false); };
+      $('#mfaf', pnl).onsubmit = async (e) => {
+        e.preventDefault();
+        const { error } = await sb.auth.mfa.challengeAndVerify({ factorId: factor.id, code: $('#mfac', pnl).value.trim() });
+        if (error) { toast('That code didn’t work. Try the newest code.'); return; }
+        close(); resolve(true);
+      };
+    });
+  });
+}
 async function boot() {
+  try { const ref = new URLSearchParams(location.search).get('ref'); if (ref) localStorage.setItem('sc_ref', ref.toLowerCase().slice(0, 12)); } catch { /* ignore */ }
   S.user = await api.user();
   if (!S.user) return;
+  if (!(await mfaGate())) { S.user = null; return; }
   S.profile = await api.profile();
   if (!DEMO && S.profile && !S.profile.home_country) { try { await api.register(); S.profile = await api.profile(); } catch { /* retried next load */ } }
   startReminders();
@@ -953,3 +1312,4 @@ if (sb) sb.auth.onAuthStateChange((ev) => { if (ev === 'SIGNED_OUT') { S.user = 
 await boot();
 await handlePaymentReturn();
 render();
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});

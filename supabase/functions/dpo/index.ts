@@ -1,5 +1,5 @@
 // Premium payments through DPO Pay (API v6).
-//   POST {action:"start", plan:"monthly"|"yearly"} -> {url}   (sends the user to DPO's secure payment page)
+//   POST {action:"start", plan:"monthly"|"yearly"|"pro_monthly"|"pro_yearly"} -> {url}
 //   POST {action:"verify", token}                  -> {premium_until}
 // Needs DPO_COMPANY_TOKEN and DPO_SERVICE_TYPE from your DPO merchant account.
 import { admin, cors, currentUser, json } from "../_shared/common.ts";
@@ -9,9 +9,11 @@ const SERVICE = Deno.env.get("DPO_SERVICE_TYPE") ?? "";
 const API = Deno.env.get("DPO_API_URL") ?? "https://secure.3gdirectpay.com/API/v6/";
 const PAY_PAGE = Deno.env.get("DPO_PAY_URL") ?? "https://secure.3gdirectpay.com/payv2.php?ID=";
 const APP_URL = Deno.env.get("APP_URL") ?? "https://alcx369.github.io/speedcurrency/app/";
-const PRICES: Record<string, { amount: number; days: number; label: string }> = {
-  monthly: { amount: Number(Deno.env.get("PRICE_MONTHLY") ?? 129), days: 31, label: "SpeedCurrency Premium – 1 month" },
-  yearly: { amount: Number(Deno.env.get("PRICE_YEARLY") ?? 1099), days: 366, label: "SpeedCurrency Premium – 1 year" },
+const PRICES: Record<string, { amount: number; days: number; label: string; tier: "premium" | "pro" }> = {
+  monthly: { amount: Number(Deno.env.get("PRICE_MONTHLY") ?? 149), days: 31, label: "SpeedCurrency Premium – 1 month", tier: "premium" },
+  yearly: { amount: Number(Deno.env.get("PRICE_YEARLY") ?? 1399), days: 366, label: "SpeedCurrency Premium – 1 year", tier: "premium" },
+  pro_monthly: { amount: Number(Deno.env.get("PRICE_PRO_MONTHLY") ?? 349), days: 31, label: "SpeedCurrency Pro – 1 month", tier: "pro" },
+  pro_yearly: { amount: Number(Deno.env.get("PRICE_PRO_YEARLY") ?? 3299), days: 366, label: "SpeedCurrency Pro – 1 year", tier: "pro" },
 };
 
 const esc = (s: string) => s.replace(/[<>&'"]/g, (c) => `&#${c.charCodeAt(0)};`);
@@ -57,11 +59,13 @@ Deno.serve(async (req) => {
     if (pay.status === "paid") return json({ ok: true });
     const res = await call(`<?xml version="1.0" encoding="utf-8"?><API3G><CompanyToken>${esc(COMPANY)}</CompanyToken><Request>verifyToken</Request><TransactionToken>${esc(token)}</TransactionToken></API3G>`);
     if (tag(res, "Result") !== "000") return json({ ok: false, status: tag(res, "ResultExplanation") || "Not paid yet" });
-    const { data: prof } = await db.from("profiles").select("premium_until").eq("id", user.id).single();
+    const { data: prof } = await db.from("profiles").select("premium_until, plan").eq("id", user.id).single();
     const base = prof?.premium_until && new Date(prof.premium_until) > new Date() ? new Date(prof.premium_until) : new Date();
     base.setUTCDate(base.getUTCDate() + PRICES[pay.plan].days);
     await db.from("payments").update({ status: "paid" }).eq("id", pay.id);
-    await db.from("profiles").update({ plan: "premium", premium_until: base.toISOString() }).eq("id", user.id);
+    const tier = PRICES[pay.plan].tier === "pro" || prof?.plan === "pro" && new Date(prof?.premium_until ?? 0) > new Date() ? "pro" : "premium";
+    await db.from("profiles").update({ plan: tier, premium_until: base.toISOString() }).eq("id", user.id);
+    await db.from("token_ledger").insert({ user_id: user.id, delta: tier === "pro" ? 300 : 100, reason: `${tier === "pro" ? "Pro" : "Premium"} tokens`, ref_id: pay.id });
     return json({ ok: true, premium_until: base.toISOString() });
   }
   return json({ error: "Unknown action" }, 400);
