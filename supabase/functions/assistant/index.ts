@@ -1,9 +1,29 @@
-// SpeedCurrency assistant, powered by Claude, streamed live into the app.
-// Free & Premium: Claude Haiku 5.5 · Pro: Claude Sonnet 5.5 · live web search with sources.
-// Needs the secret ANTHROPIC_API_KEY (Supabase → Edge Functions → Secrets).
+// SpeedCurrency assistant, streamed live into the app.
+// With ANTHROPIC_API_KEY: Claude (Haiku 5.5 / Sonnet 5.5 on Pro) with live web search.
+// Otherwise with GEMINI_API_KEY: Google Gemini free tier, plus recent Google News headlines as live context.
 import { admin, cors, currentUser } from "../_shared/common.ts";
 
 const KEY = Deno.env.get("ANTHROPIC_API_KEY") ?? "";
+const GKEY = Deno.env.get("GEMINI_API_KEY") ?? "";
+const GMODELS = (Deno.env.get("GEMINI_MODEL") ?? "gemini-3.8-flash,gemini-3.5-flash-lite,gemini-2.5-flash").split(",").map((x) => x.trim()).filter(Boolean);
+
+// Recent headlines for the question (free Google News RSS) so Gemini answers can cite current links.
+async function newsContext(q: string): Promise<{ title: string; url: string; source: string; date: string }[]> {
+  const words = q.replace(/[^\p{L}\p{N} ]/gu, " ").split(/\s+/).filter((w) => w.length > 3).slice(0, 7).join(" ");
+  if (!words) return [];
+  try {
+    const r = await fetch(`https://news.google.com/rss/search?q=${encodeURIComponent(words + " when:60d")}&hl=en-NA&gl=NA&ceid=NA:en`, { headers: { "User-Agent": "Mozilla/5.0 SpeedCurrency/1.0" }, signal: AbortSignal.timeout(6000) });
+    if (!r.ok) return [];
+    const xml = await r.text();
+    const dec = (x: string) => x.replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, "$1").replace(/&amp;/g, "&").replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&lt;/g, "<").replace(/&gt;/g, ">").trim();
+    const tag = (it: string, t: string) => dec((it.match(new RegExp(`<${t}[^>]*>([\\s\\S]*?)</${t}>`)) ?? [])[1] ?? "");
+    return [...xml.matchAll(/<item>([\s\S]*?)<\/item>/g)].slice(0, 8).map(([, it]) => {
+      const source = tag(it, "source"); let title = tag(it, "title");
+      if (source && title.endsWith(" - " + source)) title = title.slice(0, -(source.length + 3));
+      return { title, url: tag(it, "link"), source, date: tag(it, "pubDate").slice(5, 16) };
+    }).filter((x) => x.title && x.url.startsWith("https://"));
+  } catch { return []; }
+}
 const PLANS = {
   free: { model: Deno.env.get("MODEL_FREE") ?? "claude-haiku-5-5", limit: Number(Deno.env.get("LIMIT_FREE") ?? 3), searches: 2, maxTokens: 1500 },
   premium: { model: Deno.env.get("MODEL_PREMIUM") ?? "claude-haiku-5-5", limit: Number(Deno.env.get("LIMIT_PREMIUM") ?? 60), searches: 3, maxTokens: 2000 },
@@ -41,7 +61,7 @@ Deno.serve(async (req) => {
       const fail = (msg: string, extra: Record<string, unknown> = {}) => { send({ type: "error", error: msg, ...extra }); ctrl.close(); };
       try {
         if (!text) return fail("Type your question");
-        if (!KEY) return fail("Claude isn't connected yet. Add the ANTHROPIC_API_KEY secret in Supabase.");
+        if (!KEY && !GKEY) return fail("The assistant isn't connected yet. Add the GEMINI_API_KEY or ANTHROPIC_API_KEY secret in Supabase.");
         const db = admin();
         const { data: p } = await db.from("profiles").select("*").eq("id", user.id).single();
         const paid = p && ["premium", "pro"].includes(p.plan) && p.premium_until && new Date(p.premium_until) > new Date();
@@ -71,7 +91,8 @@ Deno.serve(async (req) => {
           if (error) throw error;
           chatId = c.id;
         }
-        send({ type: "start", chat_id: chatId, model: cfg.model, tier });
+        const useGemini = !KEY;
+        send({ type: "start", chat_id: chatId, model: useGemini ? GMODELS[0] : cfg.model, tier });
 
         const { data: hist } = await db.from("planner_messages").select("role, content").eq("chat_id", chatId)
           .order("created_at", { ascending: false }).limit(10);
@@ -90,6 +111,47 @@ ${await liveRates()}
 Task: ${MODES[mode] ?? MODES.plan}
 Rules: search the web for anything current (entry rules, prices, opening times, reviews, agents). Never invent prices, reviews, phone numbers or rules; if you can't confirm something, say so and name the official source. Warn if the passport expires within 6 months of travel. Keep answers practical and skimmable: short intro, then sections with "## " headings (e.g. Documents, Recommended agents, Places & reviews, Costs, Next steps), bullet points with "- ", bold with **. No tables. Do not give legal or financial advice beyond general information.`;
 
+        let answer = "";
+        const sources: { title: string; url: string }[] = [];
+        let usedModel = cfg.model;
+
+        if (useGemini) {
+          send({ type: "search", query: text.slice(0, 80) });
+          const news = await newsContext(text);
+          for (const n of news) sources.push({ title: `${n.title} (${n.source}, ${n.date})`, url: n.url });
+          if (sources.length) send({ type: "sources", sources });
+          const gsystem = system.replace("Rules: search the web for anything current", "Rules: you cannot browse; use the recent headlines below when relevant and cite them as [1], [2]. For anything current")
+            + (news.length ? "\nRecent headlines (last 60 days):\n" + news.map((n, i) => `[${i + 1}] ${n.title} – ${n.source}, ${n.date}`).join("\n") : "\nNo recent headlines were found for this question.")
+            + "\nAlways end with an 'Official sources to check' section naming the embassy, immigration, park or tourism office the traveller should confirm with.";
+          const contents = [...history, { role: "user", content: text }].map((m) => ({ role: m.role === "assistant" ? "model" : "user", parts: [{ text: m.content }] }));
+          let gr: Response | null = null;
+          for (const m of GMODELS) {
+            gr = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${m}:streamGenerateContent?alt=sse`, {
+              method: "POST", headers: { "content-type": "application/json", "x-goog-api-key": GKEY },
+              body: JSON.stringify({ systemInstruction: { parts: [{ text: gsystem }] }, contents, generationConfig: { maxOutputTokens: cfg.maxTokens * 2, temperature: 0.6 } }),
+            });
+            if (gr.ok) { usedModel = m; break; }
+            if (gr.status !== 404 && gr.status !== 400) break;
+          }
+          if (!gr || !gr.ok || !gr.body) {
+            const st = gr?.status ?? 0; const err = gr ? await gr.text() : "";
+            return fail(st === 429 ? "The free AI limit for today is used up. Try again later." : st === 403 || st === 401 ? "The Gemini key was refused. Check the GEMINI_API_KEY secret." : `AI error ${st}`, { detail: err.slice(0, 300) });
+          }
+          const reader = gr.body.getReader(); const dec = new TextDecoder(); let buf = "";
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            buf += dec.decode(value, { stream: true });
+            let i;
+            while ((i = buf.indexOf("\n")) >= 0) {
+              const line = buf.slice(0, i).trim(); buf = buf.slice(i + 1);
+              if (!line.startsWith("data: ")) continue;
+              let ev; try { ev = JSON.parse(line.slice(6)); } catch { continue; }
+              const t = (ev.candidates?.[0]?.content?.parts ?? []).map((x: { text?: string; thought?: boolean }) => (x.thought ? "" : x.text ?? "")).join("");
+              if (t) { answer += t; send({ type: "text", text: t }); }
+            }
+          }
+        } else {
         const body = {
           model: cfg.model,
           max_tokens: cfg.maxTokens,
@@ -109,8 +171,6 @@ Rules: search the web for anything current (entry rules, prices, opening times, 
           return fail(r.status === 429 || r.status === 529 ? "Claude is busy right now. Try again in a moment." : `Claude error ${r.status}`, { detail: err.slice(0, 300) });
         }
 
-        let answer = "";
-        const sources: { title: string; url: string }[] = [];
         const blocks: Record<number, { type: string; json: string }> = {};
         const reader = r.body.getReader();
         const dec = new TextDecoder();
@@ -147,7 +207,9 @@ Rules: search the web for anything current (entry rules, prices, opening times, 
           }
         }
 
-        const data = { format: "markdown", sources: sources.slice(0, 15), model: cfg.model, mode };
+        }
+
+        const data = { format: "markdown", sources: sources.slice(0, 15), model: usedModel, mode };
         await db.from("planner_messages").insert([
           { chat_id: chatId, user_id: user.id, role: "user", content: text },
           { chat_id: chatId, user_id: user.id, role: "assistant", content: answer || "No answer.", data },

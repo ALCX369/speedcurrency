@@ -1159,7 +1159,7 @@ async function Account(main, r) {
       <div class="card stack"><h2>Privacy</h2>
         <div class="row between"><span>Public journal<br><span class="small muted">Lets others see entries you mark public</span></span><button class="switch" role="switch" data-f="public_journal" aria-checked="${p.public_journal}" aria-label="Public journal"></button></div>
         <div class="row between"><span>Let people tag me<br><span class="small muted">Others can link you in “people met”</span></span><button class="switch" role="switch" data-f="allow_tags" aria-checked="${p.allow_tags}" aria-label="Let people tag me"></button></div>
-        <p class="small muted" style="margin:0">The assistant is powered by Claude. Don’t include passport numbers or other private details in questions.</p>
+        <p class="small muted" style="margin:0">Assistant questions are sent to our AI provider (Google Gemini). Don’t include passport numbers or other private details.</p>
       </div>
     </section>
 
