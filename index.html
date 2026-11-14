@@ -20,10 +20,11 @@ h1{font-size:1.5rem;margin:18px 0 12px;letter-spacing:-.02em}
 .row{display:grid;grid-template-columns:1fr;gap:12px}
 @media(min-width:560px){.row{grid-template-columns:1fr auto 1fr;align-items:end}}
 label{display:block;font-size:.8rem;color:var(--mute);margin-bottom:4px}
-input{width:100%;font:inherit;font-size:1.1rem;padding:12px;border:1px solid var(--line);border-radius:10px;background:var(--bg);color:var(--ink)}
-input:focus,button:focus-visible{outline:3px solid var(--acc);outline-offset:1px}
+input,select{width:100%;font:inherit;font-size:1.1rem;padding:12px;border:1px solid var(--line);border-radius:10px;background:var(--bg);color:var(--ink)}
+input:focus,select:focus,button:focus-visible{outline:3px solid var(--acc);outline-offset:1px}
 #amt{font-size:1.5rem;font-weight:700}
 button.swap{font-size:1.3rem;border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:50%;width:46px;height:46px;cursor:pointer;justify-self:center}
+.go{display:block;width:100%;margin-top:16px;font:inherit;font-size:1.15rem;font-weight:800;padding:14px;border:0;border-radius:10px;background:var(--acc);color:#fff;cursor:pointer}.go:active{transform:scale(.99)}.go:disabled{opacity:.6;cursor:wait}
 .result{margin-top:20px;padding-top:16px;border-top:1px solid var(--line)}
 .from{color:var(--mute)}
 .big{font-size:clamp(2rem,8vw,3.2rem);font-weight:800;letter-spacing:-.03em;font-variant-numeric:tabular-nums;word-break:break-all}
@@ -44,15 +45,17 @@ footer{color:var(--mute);font-size:.8rem;padding-top:24px;padding-bottom:90px}fo
 <div class="layout">
 <div>
 <div class="card">
-<div class="row">
-<div><label for="amt">Amount</label><input id="amt" type="text" inputmode="decimal" value="1" autocomplete="off"></div>
+<form id="cv" autocomplete="off">
+<div class="row one">
+<div><label for="amt">Amount</label><input id="amt" type="text" inputmode="decimal" value="1"></div>
 </div>
 <div class="row" style="margin-top:12px">
-<div><label for="from">From</label><input id="from" list="cur" autocomplete="off" value="USD"></div>
-<button class="swap" id="swap" aria-label="Swap currencies">⇄</button>
-<div><label for="to">To</label><input id="to" list="cur" autocomplete="off" value="EUR"></div>
+<div><label for="from">From</label><select id="from"><option value="USD">USD – US Dollar</option></select></div>
+<button type="button" class="swap" id="swap" aria-label="Swap currencies">⇄</button>
+<div><label for="to">To</label><select id="to"><option value="EUR">EUR – Euro</option></select></div>
 </div>
-<datalist id="cur"></datalist>
+<button type="submit" class="go" id="go">Convert</button>
+</form>
 <div class="result" aria-live="polite">
 <div class="from" id="fromTxt">&nbsp;</div>
 <div class="big" id="out">…</div>
@@ -73,35 +76,51 @@ footer{color:var(--mute);font-size:.8rem;padding-top:24px;padding-bottom:90px}fo
 const $=id=>document.getElementById(id);
 const PUB='ca-pub-3155975488847083', SLOT1='1326876060', SLOT2='5046629226';
 let R=null;
-try{const s=JSON.parse(localStorage.getItem('sc')||'{}');if(s.f)$('from').value=s.f;if(s.t)$('to').value=s.t}catch(e){}
+const POP=['USD','EUR','GBP','ZAR','NAD','BWP','CNY','JPY','INR','AUD','CAD','CHF','NGN','KES','AED'];
 function name(c){try{return new Intl.DisplayNames(['en'],{type:'currency'}).of(c)}catch(e){return c}}
-function code(el){return el.value.trim().toUpperCase().slice(0,3)}
 function fmt(n){const d=n>=1?2:6;return n.toLocaleString(undefined,{maximumFractionDigits:d,minimumFractionDigits:n>=1?2:0})}
 function calc(){
-  if(!R)return;
-  const a=parseFloat($('amt').value.replace(/,/g,'')),f=code($('from')),t=code($('to'));
-  if(!R.rates[f]||!R.rates[t]||isNaN(a)){$('out').textContent='—';$('fromTxt').innerHTML='&nbsp;';$('meta').textContent='Pick two currencies from the list and enter an amount.';return}
+  if(!R){$('meta').textContent='Rates are still loading – one moment…';return}
+  const a=parseFloat(String($('amt').value).replace(/[\s,]/g,'')),f=$('from').value,t=$('to').value;
+  if(isNaN(a)||!R.rates[f]||!R.rates[t]){$('out').textContent='—';$('fromTxt').innerHTML='&nbsp;';$('meta').textContent='Enter an amount and pick two currencies.';return}
   const rate=R.rates[t]/R.rates[f];
   $('fromTxt').textContent=fmt(a)+' '+f+' =';
   $('out').innerHTML=fmt(a*rate)+' <span>'+t+'</span>';
   $('meta').textContent='1 '+f+' = '+rate.toLocaleString(undefined,{maximumSignificantDigits:6})+' '+t+' · Rates dated '+R.updated;
   try{localStorage.setItem('sc',JSON.stringify({f,t}))}catch(e){}
 }
+$('cv').addEventListener('submit',e=>{e.preventDefault();calc()});
 $('swap').onclick=()=>{const f=$('from').value;$('from').value=$('to').value;$('to').value=f;calc()};
-['amt','from','to'].forEach(i=>$(i).addEventListener('input',calc));
-['from','to'].forEach(i=>$(i).addEventListener('focus',e=>e.target.select()));
-const U=['https://cdn.jsdelivr.net/npm/@fawazahmed0/currency-api@latest/v1/currencies/usd.json','https://latest.currency-api.pages.dev/v1/currencies/usd.json'];
-(async()=>{
+$('amt').addEventListener('input',calc);
+['from','to'].forEach(i=>$(i).addEventListener('change',calc));
+function fill(rates,saved){
+  const all=Object.keys(rates).sort(),pop=POP.filter(c=>rates[c]),rest=all.filter(c=>!pop.includes(c));
+  const opt=c=>'<option value="'+c+'">'+c+' – '+name(c)+'</option>';
+  const html='<optgroup label="Popular">'+pop.map(opt).join('')+'</optgroup><optgroup label="All currencies">'+rest.map(opt).join('')+'</optgroup>';
+  $('from').innerHTML=html;$('to').innerHTML=html;
+  $('from').value=rates[saved.f]?saved.f:'USD';$('to').value=rates[saved.t]?saved.t:'NAD';
+}
+function timeout(ms){return new Promise((_,rej)=>setTimeout(()=>rej(new Error('timeout')),ms))}
+const U=['https://cdn.jsdelivr.net/npm/@fawazahmed0/currency-api@latest/v1/currencies/usd.min.json','https://latest.currency-api.pages.dev/v1/currencies/usd.min.json','https://open.er-api.com/v6/latest/USD'];
+async function load(){
+  $('go').disabled=true;$('go').textContent='Loading rates…';
   let d=null;
-  for(const u of U){try{const r=await fetch(u);if(r.ok){d=await r.json();break}}catch(e){}}
-  if(!d||!d.usd){$('out').textContent='—';$('meta').textContent='Rates are temporarily unavailable. Please try again shortly.';return}
+  for(const u of U){
+    try{const r=await Promise.race([fetch(u,{cache:'no-store'}),timeout(8000)]);if(!r.ok)continue;const j=await r.json();
+      if(j.usd){d={rates:j.usd,date:j.date};break}
+      if(j.rates){const o={};for(const k in j.rates)o[k.toLowerCase()]=j.rates[k];d={rates:o,date:(j.time_last_update_utc||'').slice(5,16)};break}
+    }catch(e){}
+  }
+  $('go').disabled=false;$('go').textContent='Convert';
+  if(!d){$('out').textContent='—';$('meta').innerHTML='Rates could not load. <a href="#" id="retry">Try again</a>';$('retry').onclick=e=>{e.preventDefault();load()};return}
   const rates={};
-  for(const k in d.usd){const c=k.toUpperCase();if(c.length===3&&name(c)!==c)rates[c]=d.usd[k]}
+  for(const k in d.rates){const c=k.toUpperCase();if(c.length===3&&typeof d.rates[k]==='number'&&name(c)!==c)rates[c]=d.rates[k]}
   rates.USD=1;
   R={rates,updated:d.date};
-  $('cur').innerHTML=Object.keys(rates).sort().map(c=>'<option value="'+c+'" label="'+name(c)+'">').join('');
-  calc();
-})();
+  let saved={};try{saved=JSON.parse(localStorage.getItem('sc')||'{}')}catch(e){}
+  fill(rates,saved);calc();
+}
+load();
 // Ads load only after consent
 function loadAds(){
   if(PUB.includes('XXXX'))return;
@@ -117,5 +136,6 @@ if(c==='yes')loadAds();else if(!c)$('consent').style.display='flex';
 $('yes').onclick=()=>{try{localStorage.setItem('consent','yes')}catch(e){}$('consent').style.display='none';loadAds()};
 $('no').onclick=()=>{try{localStorage.setItem('consent','no')}catch(e){}$('consent').style.display='none'};
 </script>
+<script data-goatcounter="https://speedcurrency.goatcounter.com/count" async src="//gc.zgo.at/count.js"></script>
 </body>
 </html>
