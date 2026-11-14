@@ -125,3 +125,4 @@ create policy "own proofs upload" on storage.objects for insert to authenticated
   with check (bucket_id = 'proofs' and (storage.foldername(name))[1] = auth.uid()::text);
 create policy "own proofs read" on storage.objects for select to authenticated
   using (bucket_id = 'proofs' and ((storage.foldername(name))[1] = auth.uid()::text or public.is_admin()));
+alter function public._plan_info(text) set search_path = public;
