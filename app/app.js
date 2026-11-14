@@ -254,6 +254,38 @@ const api = {
     if (error) throw error;
     return data;
   },
+  async eftStart(plan) {
+    if (DEMO) throw new Error('Payments work once you are signed in online.');
+    const { data, error } = await sb.rpc('request_eft', { p_plan: plan });
+    if (error) throw new Error(error.message);
+    return data[0];
+  },
+  async uploadProof(payId, file) {
+    if (file.size > 5 * 1024 * 1024) throw new Error('File is too big (max 5 MB)');
+    const ext = { 'application/pdf': 'pdf', 'image/png': 'png', 'image/webp': 'webp' }[file.type] || 'jpg';
+    const path = `${S.user.id}/${payId}-${Date.now()}.${ext}`;
+    const { error } = await sb.storage.from('proofs').upload(path, file, { contentType: file.type || 'image/jpeg' });
+    if (error) throw new Error(error.message);
+    const { error: e2 } = await sb.rpc('attach_proof', { p_id: payId, p_path: path });
+    if (e2) throw new Error(e2.message);
+  },
+  async myPayments() {
+    if (DEMO) return [];
+    const { data } = await sb.from('payments').select('*').eq('user_id', S.user.id).eq('provider', 'eft').order('created_at', { ascending: false }).limit(10);
+    return data || [];
+  },
+  async isAdmin() { if (DEMO) return false; const { data } = await sb.rpc('is_admin'); return !!data; },
+  async adminPayments(status) {
+    const { data, error } = await sb.rpc('admin_payments', { p_status: status });
+    if (error) throw new Error(error.message);
+    return data || [];
+  },
+  async adminReview(id, approve, note) {
+    const { data, error } = await sb.rpc('admin_review_payment', { p_id: id, p_approve: approve, p_note: note || null });
+    if (error) throw new Error(error.message);
+    return data;
+  },
+  async proofUrl(path) { const { data } = await sb.storage.from('proofs').createSignedUrl(path, 600); return data?.signedUrl; },
   async findTraveller(handle) {
     if (DEMO) return null;
     const { data } = await sb.rpc('find_traveller', { handle: handle.replace(/^@/, '') });
@@ -353,7 +385,7 @@ const NAV = [['', 'Home', 'home'], ['planner', 'Assistant', 'planner'], ['trips'
 const TABS = ['', 'planner', 'journal', 'messages', 'account'];
 function renderNav(active) {
   const link = ([r, l, ic]) => `<a href="#/${r}" ${active === r ? 'aria-current="page"' : ''}>${icon(ic)}<span>${l}</span></a>`;
-  $('#nav').innerHTML = S.user ? NAV.map(link).join('') : '';
+  $('#nav').innerHTML = S.user ? [...NAV, ...(S.isAdmin ? [['admin', 'Admin', 'shield']] : [])].map(link).join('') : '';
   $('#tabbar').innerHTML = S.user ? NAV.filter((n) => TABS.includes(n[0])).map(link).join('') : '';
   $('#tabbar').style.display = S.user ? '' : 'none';
   $('#side-ad').innerHTML = S.user ? adBlock('side') : '';
@@ -371,7 +403,7 @@ async function render() {
   if (!S.user && r.name !== 'auth') { location.hash = '#/auth'; return; }
   if (S.user && r.name === 'auth') { location.hash = '#/'; return; }
   renderNav(r.name === 'auth' ? null : r.name);
-  const views = { '': Home, planner: Planner, trips: Trips, map: MapView, journal: Journal, album: Album, explore: Explore, messages: Messages, account: Account, auth: Auth };
+  const views = { '': Home, planner: Planner, trips: Trips, map: MapView, journal: Journal, album: Album, explore: Explore, messages: Messages, account: Account, admin: Admin, auth: Auth };
   const view = views[r.name] || Home;
   try { cleanup?.(); } catch { /* ignore */ } cleanup = null;
   main.innerHTML = '<div class="skeleton"><span></span><span></span><span></span></div>';
@@ -530,13 +562,14 @@ async function Home(main) {
     if (from.length !== 3 || to.length !== 3) return;
     try {
       const r = await loadRates(from);
+      if (!$('#cout')) return; // user left the page while rates loaded
       const rate = r.table[to];
       if (!rate) { $('#cout').textContent = 'Unknown currency'; return; }
       $('#cout').textContent = `${money(amt * rate)} ${to.toUpperCase()}`;
       $('#crate').textContent = `1 ${from.toUpperCase()} = ${money(rate, 4)} ${to.toUpperCase()}`;
       $('#ratedate').textContent = r.date ? `Rates ${r.date}` : '';
       if (!$('#curlist').children.length) $('#curlist').innerHTML = Object.keys(r.table).filter((k) => k.length === 3).map((k) => `<option value="${k.toUpperCase()}">`).join('');
-    } catch (e) { $('#cout').textContent = 'Rates offline'; }
+    } catch (e) { if ($('#cout')) $('#cout').textContent = 'Rates offline'; }
   };
   ['camt', 'cfrom', 'cto'].forEach((id) => $('#' + id).addEventListener('input', run));
   $('#cswap').addEventListener('click', () => { const a = $('#cfrom').value; $('#cfrom').value = $('#cto').value; $('#cto').value = a; run(); });
@@ -1119,7 +1152,8 @@ async function Account(main, r) {
         ${planCard('pro', 'Pro', `N$${C.PRICE_PRO_MONTHLY}/mo`, `or N$${money(C.PRICE_PRO_YEARLY, 0)}/year`, [`${C.PRO_PLANS_PER_MONTH} questions on Claude Sonnet, deeper research`, 'Tailored adventures, money and journal coaching', '300 bonus tokens each payment', 'Everything in Premium'],
           t !== 'pro' ? `<div class="row wrap"><button class="btn primary" data-pay="pro_monthly">Monthly</button><button class="btn" data-pay="pro_yearly">Yearly</button></div>` : '')}
         ${premium() ? `<p class="small muted">Active until ${fmtDate(p.premium_until)}.</p>` : ''}
-        <span class="small muted">Card or mobile money through DPO Pay.</span>
+        <span class="small muted">Pay by EFT into our FNB Namibia account. Your plan is switched on as soon as we confirm your payment.</span>
+        <div id="mypays"></div>
       </div>
       ${adBlock()}
     </section>
@@ -1143,7 +1177,14 @@ async function Account(main, r) {
     } catch (err) { toast(err.message); }
   };
   $$('[data-f]').forEach((b) => b.onclick = async () => { const v = b.getAttribute('aria-checked') !== 'true'; b.setAttribute('aria-checked', String(v)); await api.updateProfile({ [b.dataset.f]: v }); });
-  $$('[data-pay]').forEach((b) => b.onclick = async () => { b.disabled = true; try { location.href = await api.pay(b.dataset.pay); } catch (e) { toast(e.message); b.disabled = false; } });
+  $$('[data-pay]').forEach((b) => b.onclick = async () => { b.disabled = true; try { eftFlow(await api.eftStart(b.dataset.pay), () => myPays()); } catch (e) { toast(e.message); } b.disabled = false; });
+  const myPays = async () => {
+    const list = await api.myPayments(); const box = $('#mypays'); if (!box) return;
+    box.innerHTML = list.length ? `<div class="card stack"><h3>Your payments</h3>${list.map((x) => `<div class="row between wrap"><span><b>${esc(PLAN_NAMES[x.plan] || x.plan)}</b> · N$${money(x.amount, 0)}<br><span class="small muted">Ref ${esc(x.reference)} · ${fmtDate(x.created_at)}${x.status === 'pending' ? (x.proof_path ? ' · proof received' : ' · waiting for proof') : ''}${x.admin_note && x.status === 'rejected' ? ' · ' + esc(x.admin_note) : ''}</span></span>
+      <span class="row">${x.status === 'pending' ? `<button class="btn small ghost" data-open="${x.id}">Details</button>` : ''}<span class="badge ${x.status === 'paid' ? 'dark' : ''}">${{ pending: 'Checking', paid: 'Paid', rejected: 'Not received', failed: 'Failed' }[x.status] || x.status}</span></span></div>`).join('')}</div>` : '';
+    $$('[data-open]', box).forEach((b) => b.onclick = () => eftFlow(list.find((x) => x.id === b.dataset.open), myPays));
+  };
+  myPays();
   $('#share').onclick = async () => {
     const text = `Join me on SpeedCurrency: plan trips with a Claude-powered assistant, journal your travels and convert money. ${invite}`;
     if (navigator.share) { try { await navigator.share({ title: 'SpeedCurrency', text, url: invite }); } catch { /* cancelled */ } }
@@ -1292,12 +1333,65 @@ async function mfaGate() {
     });
   });
 }
+/* ---------- EFT payments ---------- */
+const PLAN_NAMES = { monthly: 'Premium · 1 month', yearly: 'Premium · 1 year', pro_monthly: 'Pro · 1 month', pro_yearly: 'Pro · 1 year' };
+function eftFlow(pay, onDone) {
+  const B = C.BANK || {};
+  const line = (label, val) => `<div class="row between"><span class="small muted">${label}</span><span class="row"><b>${esc(val)}</b><button type="button" class="btn small ghost" data-copy="${esc(val)}" aria-label="Copy ${label}">Copy</button></span></div>`;
+  const mail = `mailto:${C.PAYMENTS_EMAIL}?subject=${encodeURIComponent('SpeedCurrency payment ' + pay.reference)}&body=${encodeURIComponent(`Hi, I paid N$${pay.amount} for ${PLAN_NAMES[pay.plan] || pay.plan}.\nReference: ${pay.reference}\nAccount email: ${S.user?.email || ''}\n\nProof of payment attached.`)}`;
+  modal(`<div class="stack"><h2>Pay by EFT</h2>
+    <p class="muted" style="margin:0">Pay <b>N$${money(pay.amount, 0)}</b> for <b>${esc(PLAN_NAMES[pay.plan] || pay.plan)}</b>. Use the reference exactly as shown so we can match your payment.</p>
+    <div class="card stack" style="padding:14px">
+      ${line('Reference', pay.reference)}${line('Amount', 'N$' + money(pay.amount, 2))}
+      ${line('Bank', B.BANK_NAME || '')}${line('Account name', B.ACCOUNT_NAME || '')}${line('Account number', B.ACCOUNT_NUMBER || '')}
+      ${line('Account type', B.ACCOUNT_TYPE || '')}${line('Branch', `${B.BRANCH || ''} (${B.BRANCH_CODE || ''})`)}${line('SWIFT (from outside Namibia)', B.SWIFT || '')}
+    </div>
+    <div class="field"><label for="proof">After paying, upload your proof of payment (photo or PDF, max 5 MB)</label><input class="input" id="proof" type="file" accept="image/*,application/pdf"></div>
+    <div class="row wrap"><button class="btn primary" id="sendproof" type="button">Upload proof</button><a class="btn ghost" href="${mail}">Or email proof</a><button class="btn ghost" type="button" data-close>Close</button></div>
+    <p class="small muted" style="margin:0">We check payments daily. Your plan starts as soon as we confirm it, and you get your bonus tokens too.</p></div>`, (m, close) => {
+    $$('[data-copy]', m).forEach((b) => b.onclick = async () => { try { await navigator.clipboard.writeText(b.dataset.copy); toast('Copied'); } catch { toast(b.dataset.copy); } });
+    $('#sendproof', m).onclick = async (e) => {
+      const f = $('#proof', m).files[0]; if (!f) { toast('Choose your proof of payment first'); return; }
+      e.target.disabled = true;
+      try { await api.uploadProof(pay.id, f); toast('Proof received. We will switch your plan on once confirmed.'); close(); onDone?.(); } catch (err) { toast(err.message); e.target.disabled = false; }
+    };
+  });
+}
+async function Admin(main, r) {
+  if (!S.isAdmin) { main.innerHTML = '<div class="notice">Admins only.</div>'; return; }
+  const status = r.q.get('s') || 'pending';
+  const rows = await api.adminPayments(status);
+  const tab = (k, l) => `<a class="btn small ${status === k ? 'dark' : 'ghost'}" href="#/admin?s=${k}">${l}</a>`;
+  main.innerHTML = `<div class="page-head"><div><span class="eyebrow">Admin</span><h1>EFT payments</h1><p>Check your FNB account for the reference, then activate.</p></div></div>
+    <div class="row wrap" style="margin-bottom:12px">${tab('pending', 'To check')}${tab('paid', 'Paid')}${tab('rejected', 'Rejected')}${tab('all', 'All')}</div>
+    <div class="stack">${rows.length ? rows.map((x) => `<div class="card stack" style="padding:16px">
+      <div class="row between wrap"><b>${esc(x.display_name || x.email)}</b><span class="badge ${x.status === 'paid' ? 'dark' : ''}">${esc(x.status)}</span></div>
+      <span class="small muted">${esc(x.email)} · ${fmtDate(x.created_at)}</span>
+      <div class="row between wrap"><span>${esc(PLAN_NAMES[x.plan] || x.plan)} · <b>N$${money(x.amount, 2)}</b></span><span>Ref <b>${esc(x.reference)}</b></span></div>
+      ${x.admin_note ? `<span class="small muted">Note: ${esc(x.admin_note)}</span>` : ''}
+      <div class="row wrap">${x.proof_path ? `<button class="btn small ghost" data-proof="${esc(x.proof_path)}">View proof</button>` : '<span class="small muted">No proof uploaded (check your email)</span>'}
+        ${x.status === 'pending' ? `<button class="btn small primary" data-ok="${x.id}">Activate &amp; mark paid</button><button class="btn small ghost" data-no="${x.id}">Reject</button>` : ''}</div>
+    </div>`).join('') : '<div class="notice">Nothing here.</div>'}</div>`;
+  $$('[data-proof]').forEach((b) => b.onclick = async () => { const u = await api.proofUrl(b.dataset.proof); if (u) window.open(u, '_blank', 'noopener'); else toast('Could not open the file'); });
+  $$('[data-ok]').forEach((b) => b.onclick = async () => {
+    const x = rows.find((y) => y.id === b.dataset.ok);
+    if (!confirm(`Activate ${PLAN_NAMES[x.plan]} for ${x.display_name || x.email}?\nOnly do this once N$${x.amount} with reference ${x.reference} is in your FNB account.`)) return;
+    b.disabled = true;
+    try { const until = await api.adminReview(x.id, true); toast(`Activated until ${fmtDate(until)}`); render(); } catch (e) { toast(e.message); b.disabled = false; }
+  });
+  $$('[data-no]').forEach((b) => b.onclick = async () => {
+    const note = prompt('Reason shown to the user (optional)', 'Payment not found in our account'); if (note === null) return;
+    try { await api.adminReview(b.dataset.no, false, note); toast('Rejected'); render(); } catch (e) { toast(e.message); }
+  });
+}
+
 async function boot() {
   try { const ref = new URLSearchParams(location.search).get('ref'); if (ref) localStorage.setItem('sc_ref', ref.toLowerCase().slice(0, 12)); } catch { /* ignore */ }
   S.user = await api.user();
   if (!S.user) return;
   if (!(await mfaGate())) { S.user = null; return; }
   S.profile = await api.profile();
+  try { S.isAdmin = await api.isAdmin(); } catch { S.isAdmin = false; }
   if (!DEMO && S.profile && !S.profile.home_country) { try { await api.register(); S.profile = await api.profile(); } catch { /* retried next load */ } }
   startReminders();
 }

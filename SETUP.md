@@ -52,3 +52,9 @@ Free projects pause after 7 days without visits. Normal daily use keeps it awake
 - Album with slideshow; offline-ready app shell (sw.js).
 - Plans: Free (3 questions), Premium N$149/mo or N$1,399/yr (60), Pro N$349/mo or N$3,299/yr (120, Claude Sonnet).
 - Sign-ups are confirmed automatically (Supabase's built-in email only reaches project team members).
+
+## EFT payments (manual approval)
+1. A user picks a plan in Account and gets your FNB details plus a unique reference (e.g. SC8067F2).
+2. They pay by EFT, then upload their proof in the app or email it to the address in `PAYMENTS_EMAIL`.
+3. Sign in with cycleswithgrace@gmail.com and open **Admin** in the sidebar. Check your FNB account for the amount and reference, then tap **Activate & mark paid**. The plan, its end date and the bonus tokens are applied immediately. **Reject** shows your note to the user.
+Bank details live in `app/config.js` (`BANK`). Prices live in `app/config.js` and in `_plan_info()` in `supabase/migrations/004_eft_payments.sql`; change both together.

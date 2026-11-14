@@ -14,5 +14,16 @@ window.SC_CONFIG = {
   PREMIUM_PLANS_PER_MONTH: 60,
   PRO_PLANS_PER_MONTH: 120,
   TOKENS_PER_EXTRA_QUESTION: 5,
+  // EFT payments: people pay into this account, then upload or email proof. You activate their plan in the Admin screen.
+  BANK: {
+    BANK_NAME: "First National Bank of Namibia (FNB)",
+    ACCOUNT_NAME: "Mr. David M Nanyemba",
+    ACCOUNT_NUMBER: "64293318191",
+    ACCOUNT_TYPE: "Cardwise",
+    BRANCH: "Northern Industrial",
+    BRANCH_CODE: "280678",
+    SWIFT: "FIRNNANX",
+  },
+  PAYMENTS_EMAIL: "cycleswithgrace@gmail.com",
   SHOP_URL: "https://alcx369.myshopify.com/collections/christmas-gift-shop",
 };
