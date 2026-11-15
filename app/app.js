@@ -1,6 +1,7 @@
 // SpeedCurrency web app (MVP). Plain JavaScript, no build step.
 // Backend: Supabase (auth, database, photo storage, server functions). Without settings it runs in demo mode.
 import { Ready } from './ready.js';
+import { attachCurrencyPicker, codeOf } from './currency-picker.js';
 const C = window.SC_CONFIG || {};
 const DEMO = !C.SUPABASE_URL || !C.SUPABASE_ANON_KEY;
 let sb = null;
@@ -674,9 +675,18 @@ async function Home(main) {
     } catch { /* optional */ }
   })();
 
+  // Country search with flags on both sides (currency-picker.js); hide countries whose rate we don't have
+  let rateTable = null;
+  const pick = (id, initial) => attachCurrencyPicker($(id), {
+    esc, initial, homeCc: S.profile.home_country_code,
+    hasRate: (c) => !rateTable || !!rateTable[c.toLowerCase()], onPick: () => run(),
+  });
+  const pFrom = pick('#cfrom', 'USD');
+  const pTo = pick('#cto', homeCur === 'USD' ? 'EUR' : homeCur);
+
   const run = async () => {
     const amt = parseFloat($('#camt').value.replace(/[\s,]/g, '')) || 0;
-    const from = $('#cfrom').value.trim().toLowerCase(), to = $('#cto').value.trim().toLowerCase();
+    const from = codeOf($('#cfrom')).toLowerCase(), to = codeOf($('#cto')).toLowerCase();
     if (from.length !== 3 || to.length !== 3) return;
     try {
       const r = await loadRates(from);
@@ -686,11 +696,11 @@ async function Home(main) {
       $('#cout').textContent = `${money(amt * rate)} ${to.toUpperCase()}`;
       $('#crate').textContent = `1 ${from.toUpperCase()} = ${money(rate, 4)} ${to.toUpperCase()}`;
       $('#ratedate').textContent = r.date ? `Rates ${r.date}` : '';
-      if (!$('#curlist').children.length) $('#curlist').innerHTML = Object.keys(r.table).filter((k) => k.length === 3).map((k) => `<option value="${k.toUpperCase()}">`).join('');
+      rateTable = r.table;
     } catch (e) { if ($('#cout')) $('#cout').textContent = 'Rates offline'; }
   };
   ['camt', 'cfrom', 'cto'].forEach((id) => $('#' + id).addEventListener('input', run));
-  $('#cswap').addEventListener('click', () => { const a = $('#cfrom').value; $('#cfrom').value = $('#cto').value; $('#cto').value = a; run(); });
+  $('#cswap').addEventListener('click', () => { const a = pFrom.code(), b = pTo.code(); pFrom.set(b); pTo.set(a); run(); });
   $('#conv').addEventListener('submit', (e) => { e.preventDefault(); run(); });
   run();
 }

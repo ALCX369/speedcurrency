@@ -366,3 +366,17 @@ main{min-width:0}
 .grid.g2.know{grid-template-columns:1fr}
 @media (min-width:860px){.grid.g2.know{grid-template-columns:1fr 1fr}}
 @media (prefers-reduced-motion:reduce){.ring-fg{transition:none}}
+
+/* Country search with flags in the converter (currency-picker.js) */
+.cp{position:relative}
+.cp .input{padding-left:46px;text-overflow:ellipsis}
+.cp-lead{position:absolute;left:14px;top:50%;transform:translateY(-50%);display:flex;pointer-events:none}
+.cp-flag{width:24px;height:18px;border-radius:3px;object-fit:cover;box-shadow:0 0 0 1px rgba(0,0,0,.15);flex:none}
+.cp-list{position:absolute;z-index:30;left:0;right:0;top:calc(100% + 6px);margin:0;padding:6px;list-style:none;max-height:320px;overflow:auto;background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:var(--r-sm);box-shadow:0 12px 32px rgba(0,0,0,.28)}
+.cp-list li{display:flex;align-items:center;gap:12px;min-height:48px;padding:6px 10px;border-radius:10px;cursor:pointer}
+.cp-list li span{display:flex;flex-direction:column;line-height:1.25;min-width:0}
+.cp-list li small{color:var(--muted);font-size:13px}
+.cp-list li[aria-selected=true],.cp-list li:hover{background:#FFF1EA}
+.cp-list li[aria-selected=true]{box-shadow:inset 3px 0 0 var(--accent)}
+.cp-list .cp-none{cursor:default;color:var(--muted);font-size:14px}
+@media (max-width:520px){.convert{grid-template-columns:1fr}.convert #cswap{justify-self:center;transform:rotate(90deg)}.convert>span:empty{display:none}}
