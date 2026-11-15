@@ -1,9 +1,6 @@
 // SpeedCurrency web app (MVP). Plain JavaScript, no build step.
 // Backend: Supabase (auth, database, photo storage, server functions). Without settings it runs in demo mode.
-import { Ready } from './ready.js';
 import { attachCurrencyPicker, codeOf } from './currency-picker.js';
-import { JournalRope } from './journal-rope.js';
-import { ChatPage } from './chat-wa.js';
 const C = window.SC_CONFIG || {};
 const DEMO = !C.SUPABASE_URL || !C.SUPABASE_ANON_KEY;
 let sb = null;
@@ -94,7 +91,7 @@ const api = {
     const { error } = await sb.auth.resetPasswordForEmail(email, { redirectTo: location.origin + location.pathname + '#/account' });
     if (error) throw error;
   },
-  async signOut() { if (DEMO) { const d = DS.load(); delete d.user; DS.save(d); return; } await sb.auth.signOut(); },
+  async signOut(scope = 'local') { if (DEMO) { const d = DS.load(); delete d.user; DS.save(d); return; } const { error } = await sb.auth.signOut({ scope }); if (error) throw error; },
   async profile() {
     if (DEMO) return DS.load().profile;
     const u = await this.user();
@@ -459,6 +456,9 @@ function renderNav(active) {
   $('#tabbar').style.display = S.user ? '' : 'none';
   $('#side-ad').innerHTML = S.user ? adBlock('side') : '';
 }
+/** Clears local session state and returns to sign-in (used by every sign-out path). */
+function endSession() { S.user = null; S.profile = null; CACHE.clear(); location.hash = '#/auth'; render(); }
+
 function route() {
   const h = location.hash.replace(/^#\/?/, '');
   const [path, query] = h.split('?');
@@ -472,7 +472,7 @@ async function render() {
   if (!S.user && r.name !== 'auth') { location.hash = '#/auth'; return; }
   if (S.user && r.name === 'auth') { location.hash = '#/'; return; }
   renderNav(r.name === 'auth' ? null : r.name);
-  const views = { '': Home, planner: Planner, trips: Trips, map: MapView, journal: Journal, album: Album, explore: Explore, messages: Messages, account: Account, admin: Admin, updates: Updates, 'explore-na': Namibia, ready: (m) => Ready(m, { esc, fmtDate, profile: S.profile }), auth: Auth };
+  const views = { '': Home, planner: Planner, trips: Trips, map: MapView, journal: Journal, album: Album, explore: Explore, messages: Messages, account: Account, admin: Admin, updates: Updates, 'explore-na': Namibia, ready: async (m) => (await import('./ready.js')).Ready(m, { esc }), auth: Auth };
   const view = views[r.name] || Home;
   try { cleanup?.(); } catch { /* ignore */ } cleanup = null;
   main.innerHTML = '<div class="skeleton"><span></span><span></span><span></span></div>';
@@ -564,6 +564,9 @@ async function Auth(main) {
     const btn = $('#asubmit'); btn.disabled = true;
     try {
       if (mode === 'up') {
+        const { checkNewPassword } = await import('./security.js');
+        const why = await checkNewPassword($('#apass').value);
+        if (why) { toast(why); $('#apass').focus(); return; }
         await api.signUp($('#aemail').value.trim(), $('#apass').value, $('#aname').value.trim());
         if (!DEMO && !(await api.user())) { toast('Account created. Sign in to continue.'); setMode('in'); return; }
       } else await api.signIn($('#aemail').value.trim(), $('#apass').value);
@@ -592,13 +595,6 @@ async function Home(main) {
   const homeCur = homeCurrency(S.profile.home_country_code);
   const first = (S.profile.display_name || '').split(' ')[0];
   const bal = await api.balance();
-  const exp = S.profile.passport_expiry ? new Date(S.profile.passport_expiry) : null;
-  const months = exp ? (exp - new Date()) / (30.44 * 864e5) : null;
-  const tripEnd = next?.end_date ? new Date(next.end_date) : null;
-  const passportNote = !exp
-    ? `<a class="notice row" href="#/account" style="text-decoration:none">${icon('passport', 18)}<span>Add your passport country and expiry date so the assistant checks the right rules.</span></a>`
-    : months < 0 ? `<div class="notice row">${icon('passport', 18)}<span><b>Your passport has expired.</b> Renew it before you travel.</span></div>`
-    : (months < 6 || (tripEnd && (exp - tripEnd) / (30.44 * 864e5) < 6)) ? `<div class="notice row">${icon('passport', 18)}<span><b>Passport expires ${fmtDate(exp)}.</b> Many countries need 6 months' validity after you arrive.</span></div>` : '';
   const hr = new Date().getHours();
   const greet = hr < 12 ? 'Good morning' : hr < 18 ? 'Good afternoon' : 'Good evening';
   const town = (S.profile.residential_address || '').split(',').map((x) => x.trim()).filter(Boolean).slice(-2, -1)[0] || S.profile.home_country || '';
@@ -611,7 +607,6 @@ async function Home(main) {
   </header>
   <form class="searchbar reveal" id="hsearch" role="search"><span aria-hidden="true">🔎</span><label class="sr" for="hq">Search a place</label><input id="hq" placeholder="Where to next? Try Etosha, Swakop or Zanzibar" autocomplete="off"><button class="btn small primary">Go</button></form>
   <div class="chips mood reveal" id="moods" aria-label="Moods">${HOME_MOODS.map(([k, l], i) => `<button class="chip" data-mood="${k}" aria-pressed="${i === 0}">${l}</button>`).join('')}</div>
-  ${passportNote}
   <a class="ready-strip reveal" href="#/ready"><span aria-hidden="true">✅</span><span><b>Ready to Go?</b> Your trip score, checklist and Namibia must-knows</span><span aria-hidden="true">→</span></a>
   <section class="section" style="margin-top:6px"><div class="row between"><h2>Picked for you</h2><a href="#/explore-na">All of Namibia →</a></div>
     <div class="rail" id="recs"></div></section>
@@ -768,7 +763,7 @@ async function Planner(main, r) {
   let mode = r.q.get('mode') || 'plan';
   const used = await api.plannerUsage();
   const limit = planLimit();
-  const home = S.profile.passport_country || S.profile.home_country || 'your country';
+  const home = S.profile.nationality || S.profile.home_country || 'your country';
   const t = tier();
   main.innerHTML = `
   <div class="page-head"><div><span class="eyebrow">Assistant · Claude ${t === 'pro' ? 'Sonnet' : 'Haiku'}${t !== 'free' ? ' · ' + t[0].toUpperCase() + t.slice(1) : ''}</span><h1>Plan your next move</h1>
@@ -1046,7 +1041,7 @@ async function MapView(main) {
 async function Journal(main, r) {
   if (r.id) return JournalEntry(main, r.id);
   // The journal is drawn as a rope of knots with endless scroll (journal-rope.js)
-  cleanup = await JournalRope(main, { api, esc, fmtDate, editEntry, storyPlayer, toast });
+  cleanup = await (await import('./journal-rope.js')).JournalRope(main, { api, esc, fmtDate, editEntry, storyPlayer, toast });
   if (r.q.get('new')) editEntry();
 }
 
@@ -1254,14 +1249,12 @@ async function Account(main, r) {
           <div class="row" style="min-height:48px;padding:0 14px;border-radius:14px;background:var(--soft)">${icon('lock', 16)}<b>${esc(p.home_country || 'Detecting…')}</b></div>
           <span class="small muted">Set from where this account was created. It can’t be changed.</span></div>
         <div class="field"><label>Residential address</label><div id="paddr"></div>${p.residential_address ? `<span class="small muted">Current: ${esc(p.residential_address)}</span>` : ''}</div>
-        <h3 style="margin-top:6px">${icon('passport', 18)} Travel documents</h3>
+        <h3 style="margin-top:6px">${icon('place', 18)} Travel details</h3>
         <div class="grid g2">
           <div class="field"><label for="pnat">Nationality</label><select class="input" id="pnat">${countryOptions(p.nationality)}</select></div>
-          <div class="field"><label for="ppass">Passport issued by</label><select class="input" id="ppass">${countryOptions(p.passport_country || p.home_country)}</select></div>
-          <div class="field"><label for="pexp">Passport expiry date</label><input class="input" id="pexp" type="date" value="${esc(p.passport_expiry || '')}"></div>
           <div class="field"><label for="pcur">Preferred currency</label><input class="input" id="pcur" maxlength="3" value="${esc(p.preferred_currency || homeCurrency(p.home_country_code))}" autocapitalize="characters"></div>
         </div>
-        <p class="small muted" style="margin:0">We never ask for your passport number. The assistant uses the issuing country and expiry date to check entry rules.</p>
+        <p class="small muted" style="margin:0">The assistant uses your nationality to check visa and entry rules. We never ask for passport details.</p>
         <h3 style="margin-top:6px">Emergency contact</h3>
         <div class="grid g2">
           <div class="field"><label for="pen">Name</label><input class="input" id="pen" maxlength="80" value="${esc(p.emergency_name || '')}"></div>
@@ -1273,7 +1266,8 @@ async function Account(main, r) {
       <div class="card stack"><h2>${icon('shield', 20)} Security</h2>
         <div class="row between"><span>Two-step sign-in (optional)<br><span class="small muted">${mfa ? 'On: a code from your authenticator app is needed at sign-in.' : 'Add a code from an authenticator app (Google Authenticator, Authy…).'}</span></span>
           <button class="btn small ${mfa ? 'ghost' : 'dark'}" id="mfa">${mfa ? 'Turn off' : 'Turn on'}</button></div>
-        <div class="row between"><span>Password</span><button class="btn small ghost" id="pw">Change password</button></div>
+        <div class="row between"><span>Password<br><span class="small muted">New passwords are checked against known data breaches.</span></span><button class="btn small ghost" id="pw">Change password</button></div>
+        <div class="row between"><span>Signed in somewhere else?<br><span class="small muted">Lost a phone or used a shared computer? Sign out everywhere at once.</span></span><button class="btn small ghost" id="outall">Sign out on all devices</button></div>
       </div>
 
       <div class="card stack"><h2>Privacy</h2>
@@ -1310,7 +1304,13 @@ async function Account(main, r) {
   </div>`;
   let addr = p.residential_address ? { name: p.residential_address, lat: p.residential_lat, lng: p.residential_lng } : null;
   placePicker($('#paddr'), (pl) => { addr = { name: (pl.name + (pl.detail ? ', ' + pl.detail : '')).slice(0, 200), lat: pl.lat, lng: pl.lng }; });
-  $('#out').onclick = async () => { await api.signOut(); S.user = null; S.profile = null; CACHE.clear(); location.hash = '#/auth'; render(); };
+  $('#out').onclick = async () => { await api.signOut(); endSession(); };
+  $('#outall').onclick = async () => {
+    if (DEMO) return toast('This works once you are signed in online.');
+    if (!confirm('Sign out on every phone and computer, including this one?')) return;
+    try { await api.signOut('global'); } catch (err) { return toast(err.message); }
+    endSession(); toast('Signed out on all devices');
+  };
   $('#pform').onsubmit = async (e) => {
     e.preventDefault();
     const username = $('#puser').value.trim().toLowerCase();
@@ -1320,7 +1320,7 @@ async function Account(main, r) {
       await api.updateProfile({
         display_name: $('#pname').value.trim(), username: username || null, bio: $('#pbio').value.trim() || null,
         residential_address: addr?.name || null, residential_lat: addr?.lat ?? null, residential_lng: addr?.lng ?? null,
-        nationality: $('#pnat').value || null, passport_country: $('#ppass').value || null, passport_expiry: $('#pexp').value || null,
+        nationality: $('#pnat').value || null,
         emergency_name: $('#pen').value.trim() || null, emergency_phone: $('#pep').value.trim() || null, preferred_currency: /^[A-Z]{3}$/.test(cur) ? cur : null,
       });
       S.profile = await api.profile(); toast('Profile saved');
@@ -1353,7 +1353,7 @@ async function Account(main, r) {
       if ($('#delc', m).value.trim() !== 'DELETE') { toast('Type DELETE to confirm'); return; }
       if (DEMO) { localStorage.removeItem('sc_demo'); location.hash = '#/auth'; location.reload(); return; }
       e.target.disabled = true;
-      try { await api.deleteAccount(); await sb.auth.signOut().catch(() => {}); CACHE.clear(); S.user = null; S.profile = null; toast('Your account was deleted'); location.hash = '#/auth'; render(); }
+      try { await api.deleteAccount(); await api.signOut().catch(() => {}); endSession(); toast('Your account was deleted'); }
       catch (err) { toast(err.message); e.target.disabled = false; }
     };
   });
@@ -1362,8 +1362,22 @@ async function Account(main, r) {
     if (navigator.share) { try { await navigator.share({ title: 'SpeedCurrency', text, url: invite }); } catch { /* cancelled */ } }
     else { try { await navigator.clipboard.writeText(invite); toast('Invite link copied'); } catch { $('#inv').select(); } }
   };
-  $('#pw').onclick = () => modal(`<h2>Change password</h2><form class="stack" id="pwf" style="margin-top:12px"><div class="field"><label for="npw">New password</label><input class="input" id="npw" type="password" minlength="8" autocomplete="new-password" required></div><button class="btn primary">Save password</button></form>`, (pnl, close) => {
-    $('#pwf', pnl).onsubmit = async (e) => { e.preventDefault(); const { error } = await sb.auth.updateUser({ password: $('#npw', pnl).value }); if (error) toast(error.message); else { close(); toast('Password changed'); } };
+  $('#pw').onclick = () => modal(`<h2>Change password</h2><form class="stack" id="pwf" style="margin-top:12px">
+      <div class="field"><label for="npw">New password</label><input class="input" id="npw" type="password" minlength="10" autocomplete="new-password" required aria-describedby="pwerr"></div>
+      <div class="field"><label for="npw2">Type it again</label><input class="input" id="npw2" type="password" minlength="10" autocomplete="new-password" required></div>
+      <p class="small form-err" id="pwerr" role="alert"></p>
+      <button class="btn primary">Save password</button></form>`, (pnl, close) => {
+    $('#pwf', pnl).onsubmit = async (e) => {
+      e.preventDefault();
+      const pw = $('#npw', pnl).value, btn = $('#pwf button', pnl);
+      btn.disabled = true; btn.textContent = 'Checking…';
+      const { checkNewPassword } = await import('./security.js');
+      const why = await checkNewPassword(pw, $('#npw2', pnl).value);
+      btn.disabled = false; btn.textContent = 'Save password';
+      if (why) { $('#pwerr', pnl).textContent = why; return; }
+      const { error } = await sb.auth.updateUser({ password: pw });
+      if (error) $('#pwerr', pnl).textContent = error.message; else { close(); toast('Password changed'); }
+    };
   });
   $('#mfa').onclick = async () => {
     if (DEMO) return toast('Two-step sign-in works once you are signed in online.');
@@ -1501,7 +1515,7 @@ function storyPlayer(slides, who) {
 async function Messages(main, r) {
   if (DEMO) { main.innerHTML = '<div class="empty">Chats work once you are signed in online.</div>'; return; }
   // WhatsApp-style chats with Make it a story (chat-wa.js)
-  cleanup = await ChatPage(main, r, { api, S, sb, esc, fmtDate, modal, reportFlow, toast, premium });
+  cleanup = await (await import('./chat-wa.js')).ChatPage(main, r, { api, S, sb, esc, fmtDate, modal, reportFlow, toast, premium });
 }
 
 /* =========================================================

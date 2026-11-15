@@ -54,12 +54,16 @@ const MODES: Record<string, string> = {
 // Chat "Make it a story": rewrite a rough chat message, no web search, plain text only.
 const POLISH_SYSTEM = "Rewrite the traveller's rough chat message into a short, warm, vivid travel story they will send to a friend in a chat. Keep every fact, name and place they gave; invent nothing. First person, plain text, no headings, no lists, no hashtags, at most 400 characters. Reply with the rewritten message only.";
 
+let ratesCache = { at: 0, text: "" };
 async function liveRates(): Promise<string> {
+  if (ratesCache.text && Date.now() - ratesCache.at < 3600_000) return ratesCache.text;
   try {
     const r = await fetch("https://cdn.jsdelivr.net/npm/@fawazahmed0/currency-api@latest/v1/currencies/usd.min.json", { signal: AbortSignal.timeout(5000) });
     const j = await r.json();
     const pick = ["nad", "zar", "eur", "gbp", "bwp", "zmw", "kes", "aed", "cny", "inr", "aud", "cad", "jpy", "tzs", "mur"];
-    return `Rates on ${j.date} (1 USD =): ` + pick.filter((c) => j.usd[c]).map((c) => `${c.toUpperCase()} ${Number(j.usd[c]).toFixed(4)}`).join(", ");
+    const text = `Rates on ${j.date} (1 USD =): ` + pick.filter((c) => j.usd[c]).map((c) => `${c.toUpperCase()} ${Number(j.usd[c]).toFixed(4)}`).join(", ");
+    ratesCache = { at: Date.now(), text };
+    return text;
   } catch { return "Live rates unavailable right now; say so if a conversion is asked."; }
 }
 
@@ -75,25 +79,27 @@ Deno.serve(async (req) => {
 
   const stream = new ReadableStream({
     async start(ctrl) {
-      const send = (obj: unknown) => ctrl.enqueue(enc.encode(`data: ${JSON.stringify(obj)}\n\n`));
+      let sentText = false; // once answer text has reached the user, a failure no longer refunds
+      const send = (obj: { type: string; [k: string]: unknown }) => { if (obj.type === "text") sentText = true; ctrl.enqueue(enc.encode(`data: ${JSON.stringify(obj)}\n\n`)); };
       let spent = false; // tokens already taken for this question
       const fail = (msg: string, extra: Record<string, unknown> = {}) => {
         // give the tokens back if the answer failed after we took them
-        if (spent) { spent = false; admin().from("token_ledger").insert({ user_id: user.id, delta: EXTRA_COST, reason: "Refund: question failed" }).then(() => {}, () => {}); }
+        if (spent && !sentText) { spent = false; admin().from("token_ledger").insert({ user_id: user.id, delta: EXTRA_COST, reason: "Refund: question failed" }).then(() => {}, () => {}); }
         send({ type: "error", error: msg, ...extra }); ctrl.close();
       };
       try {
         if (!text) return fail("Type your question");
         if (!KEY && !GKEY) return fail("The assistant isn't connected yet. Add the GEMINI_API_KEY or ANTHROPIC_API_KEY secret in Supabase.");
         const db = admin();
-        const { data: p } = await db.from("profiles").select("*").eq("id", user.id).single();
+        const monthStart = new Date(); monthStart.setUTCDate(1); monthStart.setUTCHours(0, 0, 0, 0);
+        const [{ data: p }, { count }] = await Promise.all([
+          db.from("profiles").select("*").eq("id", user.id).single(),
+          db.from("planner_messages").select("id", { count: "exact", head: true }).eq("user_id", user.id).eq("role", "user").gte("created_at", monthStart.toISOString()),
+        ]);
         const paid = p && ["premium", "pro"].includes(p.plan) && p.premium_until && new Date(p.premium_until) > new Date();
         const tier = paid ? (p.plan as "premium" | "pro") : "free";
         const cfg = PLANS[tier];
 
-        const monthStart = new Date(); monthStart.setUTCDate(1); monthStart.setUTCHours(0, 0, 0, 0);
-        const { count } = await db.from("planner_messages").select("id", { count: "exact", head: true })
-          .eq("user_id", user.id).eq("role", "user").gte("created_at", monthStart.toISOString());
         if ((count ?? 0) >= cfg.limit) {
           // Take the tokens now, under a database lock, so two questions at once can't spend the same tokens.
           const { error: spendErr } = await db.rpc("_spend_tokens", { uid: user.id, amount: EXTRA_COST, why: "Extra AI question", ref: null });
@@ -108,8 +114,12 @@ Deno.serve(async (req) => {
           const { data: c } = await db.from("planner_chats").select("id").eq("id", chatId).eq("user_id", user.id).single();
           if (!c) chatId = undefined;
         }
+        if (!chatId && polish) {
+          const { data: c } = await db.from("planner_chats").select("id").eq("user_id", user.id).eq("title", "Story helper").limit(1).maybeSingle();
+          if (c) chatId = c.id;
+        }
         if (!chatId) {
-          const { data: c, error } = await db.from("planner_chats").insert({ user_id: user.id, title: text.slice(0, 60) }).select("id").single();
+          const { data: c, error } = await db.from("planner_chats").insert({ user_id: user.id, title: polish ? "Story helper" : text.slice(0, 60) }).select("id").single();
           if (error) throw error;
           chatId = c.id;
         }
@@ -118,7 +128,8 @@ Deno.serve(async (req) => {
         const useGemini = !KEY || (tier === "free" && !!GKEY);
         send({ type: "start", chat_id: chatId, model: useGemini ? GMODELS[0] : cfg.model, tier });
 
-        const { data: hist } = await db.from("planner_messages").select("role, content").eq("chat_id", chatId)
+        // Story helper needs no history or live rates: skip both lookups to answer faster.
+        const { data: hist } = polish ? { data: [] } : await db.from("planner_messages").select("role, content").eq("chat_id", chatId)
           .order("created_at", { ascending: false }).limit(10);
         const history = ((hist ?? []) as { role: string; content: string }[]).reverse()
           .map((m) => ({ role: m.role === "assistant" ? "assistant" : "user", content: m.content }));
@@ -126,14 +137,13 @@ Deno.serve(async (req) => {
         while (history.length && history[0].role !== "user") history.shift();
 
         const today = new Date().toISOString().slice(0, 10);
-        const passport = p?.passport_country || p?.home_country || "unknown";
-        const expiry = p?.passport_expiry ? `Passport expires ${p.passport_expiry}.` : "Passport expiry not given.";
+        const nationality = p?.nationality || p?.home_country || "unknown";
         const system = `You are the SpeedCurrency travel assistant, a premium travel companion. Today is ${today}.
-Traveller: ${p?.display_name || "traveller"}; home country (where the account was created): ${p?.home_country || "unknown"}; passport issued by: ${passport}; ${expiry}
+Traveller: ${p?.display_name || "traveller"}; home country (where the account was created): ${p?.home_country || "unknown"}; nationality: ${nationality}.
 Lives in: ${p?.residential_address || "not given"}. Preferred currency: ${p?.preferred_currency || "not set"}. Plan: ${tier}.
-${await liveRates()}
+${polish ? "" : await liveRates()}
 Task: ${MODES[mode] ?? MODES.plan}
-Rules: search the web for anything current (entry rules, prices, opening times, reviews, agents). Never invent prices, reviews, phone numbers or rules; if you can't confirm something, say so and name the official source. Warn if the passport expires within 6 months of travel. Keep answers practical and skimmable: short intro, then sections with "## " headings (e.g. Documents, Recommended agents, Places & reviews, Costs, Next steps), bullet points with "- ", bold with **. No tables. Do not give legal or financial advice beyond general information.`;
+Rules: search the web for anything current (entry rules, prices, opening times, reviews, agents). Never invent prices, reviews, phone numbers or rules; if you can't confirm something, say so and name the official source. Remind the traveller that many countries require a passport valid for 6 months after arrival. Keep answers practical and skimmable: short intro, then sections with "## " headings (e.g. Documents, Recommended agents, Places & reviews, Costs, Next steps), bullet points with "- ", bold with **. No tables. Do not give legal or financial advice beyond general information.`;
 
         let answer = "";
         const sources: { title: string; url: string }[] = [];

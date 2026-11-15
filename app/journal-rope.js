@@ -94,7 +94,8 @@ export async function JournalRope(main, deps) {
     : null;
   await loadMore();
   if (io) io.observe(more); else { more.innerHTML = '<button class="btn ghost" id="ropebtn">Show more</button>'; }
-  main.addEventListener('click', (ev) => {
+  // Listen on the rope itself (replaced on every visit), not on <main>, so handlers never pile up.
+  main.querySelector('#rope').addEventListener('click', (ev) => {
     if (ev.target.id === 'ropebtn') loadMore();
     const k = ev.target.closest('[data-knot]');
     if (k) { k.classList.remove('tug'); void k.offsetWidth; k.classList.add('tug'); k.parentElement.querySelector('.memory-link')?.focus(); }

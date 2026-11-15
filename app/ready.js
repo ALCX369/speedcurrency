@@ -72,15 +72,6 @@ function season(month) {
 function load() { try { return JSON.parse(localStorage.getItem(KEY) || '{}'); } catch { return {}; } }
 function save(v) { try { localStorage.setItem(KEY, JSON.stringify(v)); } catch { /* private mode: keep in memory only */ } }
 
-function passportStatus(expiry, fmtDate) {
-  if (!expiry) return { cls: 'warn', text: 'Add your passport expiry in Account so we can check it for you.', link: '#/account' };
-  const months = (new Date(expiry) - new Date()) / (30.44 * 864e5);
-  if (months < 0) return { cls: 'bad', text: `Expired on ${fmtDate(expiry)}. Renew before you book anything.` };
-  if (months < 6) return { cls: 'bad', text: `Expires ${fmtDate(expiry)}: under 6 months. Many countries, Namibia included, ask for 6 months and may refuse boarding or entry.` };
-  if (months < 9) return { cls: 'warn', text: `Expires ${fmtDate(expiry)}. Fine for a short trip now; renew before longer travel.` };
-  return { cls: 'ok', text: `Valid until ${fmtDate(expiry)}. You're good. ✨`, done: true };
-}
-
 function ring(pct) {
   const r = 46, c = 2 * Math.PI * r, off = c * (1 - pct / 100);
   return `<svg class="ring" viewBox="0 0 110 110" role="img" aria-label="${pct}% ready">
@@ -91,26 +82,25 @@ function ring(pct) {
 
 const srcLinks = (keys, esc) => keys.map((k) => `<a href="${esc(SRC[k][0])}" target="_blank" rel="noopener noreferrer">${esc(SRC[k][1])}</a>`).join(' · ');
 
-export function Ready(main, { esc, fmtDate, profile }) {
+export function Ready(main, { esc }) {
   const state = load();
-  const pass = passportStatus(profile?.passport_expiry, fmtDate);
   const sea = season(new Date().getMonth());
 
   const score = () => {
-    const done = CHECKLIST.filter(([k]) => state[k]).length + (pass.done ? 1 : 0);
-    return Math.round((done / (CHECKLIST.length + 1)) * 100);
+    const done = CHECKLIST.filter(([k]) => state[k]).length;
+    return Math.round((done / CHECKLIST.length) * 100);
   };
   const mood = (p) => (p === 100 ? 'Fully ready. Have the best trip! 🧡' : p >= 66 ? 'Almost there, just a few things left.' : p >= 33 ? 'Good start. Keep ticking.' : 'Let\'s get you ready, one tick at a time.');
 
+  const s0 = score();
   main.innerHTML = `
   <div class="page-head reveal"><div><span class="eyebrow">✅ Ready to Go</span><h1>Know before you go</h1>
     <p>Your pre-trip score, a checklist that works for any country, and the Namibia must-knows locals wish every visitor read first.</p></div></div>
 
   <section class="ready-hero card night reveal" aria-label="Your readiness">
-    <div id="rring">${ring(score())}</div>
-    <div class="stack" style="gap:6px"><h2 style="color:var(--on-dark);margin:0">You're <span id="rpct">${score()}</span>% ready</h2>
-      <p id="rmood" aria-live="polite" style="margin:0;color:var(--on-dark-muted)">${mood(score())}</p>
-      <div class="pass ${pass.cls}"><span aria-hidden="true">🛂</span> ${esc(pass.text)}${pass.link ? ` <a href="${pass.link}">Add it →</a>` : ''}</div></div>
+    <div id="rring">${ring(s0)}</div>
+    <div class="stack" style="gap:6px"><h2 style="color:var(--on-dark);margin:0">You're <span id="rpct">${s0}</span>% ready</h2>
+      <p id="rmood" aria-live="polite" style="margin:0;color:var(--on-dark-muted)">${mood(s0)}</p></div>
   </section>
 
   <div class="season reveal"><span aria-hidden="true">${sea.e}</span><div><b>Now in Namibia: ${sea.h}</b><br><span class="muted">${sea.b}</span></div></div>
@@ -127,8 +117,8 @@ export function Ready(main, { esc, fmtDate, profile }) {
       <p class="small muted" style="margin:auto 0 0">Checked ${CHECKED} · ${srcLinks(n.s, esc)}</p></article>`).join('')}</div></section>
 
   <section class="card accent stack reveal"><h2 style="margin:0">Going somewhere else?</h2>
-    <p style="margin:0">The assistant checks visas, fees and warnings for your passport and destination, with sources.</p>
-    <a class="btn dark" href="#/planner?q=${encodeURIComponent('Check my trip: visa for my passport, entry rules, health requirements, safety warnings and money tips for ')}" style="align-self:flex-start">Check my next trip →</a></section>`;
+    <p style="margin:0">The assistant checks visas, fees and warnings for your nationality and destination, with sources.</p>
+    <a class="btn dark" href="#/planner?q=${encodeURIComponent('Check my trip: visa for my nationality, entry rules, health requirements, safety warnings and money tips for ')}" style="align-self:flex-start">Check my next trip →</a></section>`;
 
   const repaint = () => {
     const p = score();
