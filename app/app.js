@@ -1,3 +1,4 @@
+// ☥ ALCX · 3·6·9 · life path 33/6 · love, peace, 520 741 8
 // SpeedCurrency web app (MVP). Plain JavaScript, no build step.
 // Backend: Supabase (auth, database, photo storage, server functions). Without settings it runs in demo mode.
 import { attachCurrencyPicker, codeOf } from './currency-picker.js';
@@ -519,20 +520,12 @@ function placePicker(container, onPick) {
    AUTH (landing)
    ========================================================= */
 async function Auth(main) {
+  const onb = await import('./onboard.js');
   main.innerHTML = `
   <div class="grid g2" style="align-items:start;margin-top:12px">
-    <section class="stack" style="gap:18px">
-      <span class="eyebrow">speed.currency</span>
-      <h1>Plan the trip. Keep the story.</h1>
-      <p class="muted" style="font-size:18px;margin:0">Ask about any place. You get the papers your passport needs, rough costs, where to stay and eat, and links to check it yourself. Your plans, trips and travel journal stay together in one place.</p>
-      <div class="grid g3">
-        <div class="card"><h3>${icon('doc')} Documents</h3><p class="small muted" style="margin:6px 0 0">What your passport needs, with the official page to check.</p></div>
-        <div class="card"><h3>${icon('agent')} Agents</h3><p class="small muted" style="margin:6px 0 0">Tour operators and offices worth calling.</p></div>
-        <div class="card"><h3>${icon('place')} Places</h3><p class="small muted" style="margin:6px 0 0">Where to sleep and eat, and what people say about it.</p></div>
-      </div>
-      ${DEMO ? '<div class="notice"><b>Demo mode.</b> Data stays on this device until the app is connected to its server.</div>' : ''}
-    </section>
-    <section class="card stack" aria-label="Sign in">
+    <div class="stack" style="gap:12px;min-width:0">${onb.onboardSlides(C)}
+      ${DEMO ? '<div class="notice"><b>Demo mode.</b> Data stays on this device until the app is connected to its server.</div>' : ''}</div>
+    <section class="card stack auth-card" aria-label="Sign in">
       <div class="row" role="tablist"><button class="chip" role="tab" aria-pressed="true" data-mode="up">Create account</button><button class="chip" role="tab" aria-pressed="false" data-mode="in">Sign in</button></div>
       <form id="authf" class="stack">
         <div class="field" id="namef"><label for="aname">Your name</label><input class="input" id="aname" autocomplete="name" maxlength="60"></div>
@@ -558,6 +551,7 @@ async function Auth(main) {
   $('#aforgot').addEventListener('click', async () => {
     try { await api.resetPassword($('#aemail').value); toast('Check your email for a reset link'); } catch (e) { toast(e.message); }
   });
+  onb.wireSlides(main);
   $('#authf').addEventListener('submit', async (e) => {
     e.preventDefault();
     if (mode === 'up' && !$('#agree').checked) { toast('Please confirm you are 18+ and agree to the Terms and Privacy Policy'); $('#agree').focus(); return; }
@@ -626,7 +620,7 @@ async function Home(main) {
     </section>
     <section class="stack">
       ${next ? `<a class="card stack next-trip" href="#/trips/${next.id}" style="text-decoration:none">
-          <div class="row between"><span class="eyebrow">✈️ Next trip</span>${countdown(next.start_date)}</div><h2>${esc(next.destination)}</h2>
+          <div class="row between"><span class="eyebrow">Next trip</span>${countdown(next.start_date)}</div><h2>${esc(next.destination)}</h2>
           <span class="muted">${next.start_date ? fmtDate(next.start_date) : 'No dates yet'}${next.end_date ? ' – ' + fmtDate(next.end_date) : ''}</span>
           ${next.reminder?.on ? `<span class="badge ok">Reminder on · ${esc(next.reminder.place || '')}</span>` : ''}
           <span class="small" style="color:var(--accent-dark);font-weight:700">📰 What's happening in ${esc(next.destination)} →</span></a>`

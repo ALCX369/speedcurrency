@@ -1,3 +1,4 @@
+/* ☥ ALCX · 3·6·9 · life path 33/6 · love, peace, 520 741 8 */
 :root{
   --bg:#F3F2EE; --surface:#FFFFFF; --line:#E3E1DC; --soft:#ECEAE4; --ink:#15171A; --muted:#5F6368; --muted2:#4A4E54;
   --accent:#FF5A1F; --accent-dark:#B83A0E; --accent-on-dark:#FF8A5C; --dark:#15171A; --dark2:#1F2226; --on-dark:#F3F2EE; --on-dark-muted:#C9CACC;
@@ -544,3 +545,29 @@ a.strand:hover,a.strand:focus-visible{border-style:solid;border-color:var(--acce
 .wa-ai{background:var(--night);color:var(--gold-hi);box-shadow:inset 0 0 0 1px rgba(201,162,107,.5)}
 .form-err{margin:0;color:var(--accent-dark)}
 .form-err:empty{display:none}
+
+/* Sign-in welcome slides (onboard.js) */
+.onb{position:relative;border-radius:28px;overflow:hidden;background:radial-gradient(120% 70% at 30% 0%,#1E3A2D,var(--night) 65%);color:var(--sand)}
+.onb-track{display:flex;overflow-x:auto;scroll-snap-type:x mandatory;scrollbar-width:none}
+.onb-track::-webkit-scrollbar{display:none}
+.onb-slide{flex:0 0 100%;scroll-snap-align:start;display:flex;flex-direction:column;justify-content:center;gap:12px;min-height:420px;padding:32px 26px 18px}
+.onb-slide h1,.onb-slide h2{margin:0;font-family:var(--display);letter-spacing:-.03em;color:#fff}
+.onb-slide h1{font-size:clamp(34px,6vw,52px);line-height:1}
+.onb-slide h2{font-size:clamp(26px,4.5vw,36px);line-height:1.05}
+.onb-slide p{margin:0;max-width:44ch;color:rgba(246,239,230,.82);font-size:17px}
+.onb-knot{width:96px;height:96px;border-radius:50%;background:radial-gradient(circle at 35% 30%,#FFB089,var(--accent) 50%,var(--accent-dark));box-shadow:0 0 0 10px rgba(201,162,107,.18),0 0 0 22px rgba(201,162,107,.08)}
+.onb-feats{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.onb-feats li{display:flex;flex-direction:column;gap:2px;padding:12px;border-radius:16px;border:1px solid rgba(201,162,107,.3);background:rgba(246,239,230,.05)}
+.onb-feats b{color:#fff}.onb-feats span{color:var(--lichen);font-size:13px}
+.onb-plans{display:grid;gap:10px}
+.onb-plans div{display:grid;grid-template-columns:auto 1fr;gap:2px 12px;align-items:baseline;padding:12px 14px;border-radius:16px;border:1px solid rgba(201,162,107,.3)}
+.onb-plans b{color:#fff;font-size:17px}.onb-plans span{justify-self:end;color:var(--sisal);font-weight:800}
+.onb-plans small{grid-column:1/-1;color:var(--lichen)}
+.onb-plans .hl{border-color:var(--accent);background:rgba(255,90,31,.08)}
+.onb-nav{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:0 26px 22px}
+.onb-dots{display:flex;gap:8px}
+.onb-dots button{width:10px;height:10px;padding:0;border:0;border-radius:999px;background:rgba(246,239,230,.3);cursor:pointer;transition:width .3s var(--ease)}
+.onb-dots button[aria-selected=true]{width:28px;background:var(--accent)}
+.onb-dots button::after{content:"";display:block;margin:-17px;width:44px;height:44px}
+@media (max-width:520px){.onb-slide{min-height:380px;padding:26px 18px 14px}.onb-feats{grid-template-columns:1fr}.onb-nav{padding:0 18px 18px}}
+@media (prefers-reduced-motion:reduce){.onb-dots button{transition:none}}

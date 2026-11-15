@@ -1,3 +1,4 @@
+// ☥ ALCX · 3·6·9 · life path 33/6 · love, peace, 520 741 8
 // Country search for the converter: type a country ("Namibia"), a currency ("dollar") or a code ("NAD"),
 // pick from a list with flags. Flags are SVGs from the flag-icons package (they show on Windows too,
 // where flag emoji do not). The input keeps working with a plain 3-letter code as before.

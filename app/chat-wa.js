@@ -1,3 +1,4 @@
+// ☥ ALCX · 3·6·9 · life path 33/6 · love, peace, 520 741 8
 // Chats in a WhatsApp-like layout: chat list, then a full-screen chat on phones,
 // tailed bubbles with time and a sent tick, day dividers, and "Make it a story":
 // AI rewrites a rough idea into a short story in the message box before you send it.

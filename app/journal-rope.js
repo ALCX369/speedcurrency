@@ -1,3 +1,4 @@
+// ☥ ALCX · 3·6·9 · life path 33/6 · love, peace, 520 741 8
 // Journal as a rope: every entry is a knot on one twisted rope, newest at the top.
 // Endless scroll: 6 knots at a time, the next 6 load as the rope's end comes into view.
 // Strands under each card link the memory to the rest of the app: other visits to the same

@@ -1,3 +1,4 @@
+// ☥ ALCX · 3·6·9 · life path 33/6 · love, peace, 520 741 8
 // "Ready to Go": a pre-trip readiness score, a worldwide checklist and Namibia must-knows.
 // Facts were checked against the linked sources on 15 Nov 2026. Rules change: every card says where to confirm.
 // The checklist is saved on this device only (localStorage); it is a convenience, nothing depends on it.
