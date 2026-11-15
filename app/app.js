@@ -2,6 +2,7 @@
 // Backend: Supabase (auth, database, photo storage, server functions). Without settings it runs in demo mode.
 import { Ready } from './ready.js';
 import { attachCurrencyPicker, codeOf } from './currency-picker.js';
+import { JournalRope } from './journal-rope.js';
 const C = window.SC_CONFIG || {};
 const DEMO = !C.SUPABASE_URL || !C.SUPABASE_ANON_KEY;
 let sb = null;
@@ -1043,25 +1044,8 @@ async function MapView(main) {
    ========================================================= */
 async function Journal(main, r) {
   if (r.id) return JournalEntry(main, r.id);
-  const entries = await api.list('journal_entries', { order: 'visited_on' });
-  const covers = await api.photoUrls(entries.map((e) => e.photos?.[0]).filter(Boolean));
-  let ci = 0;
-  main.innerHTML = `
-  <div class="page-head"><div><span class="eyebrow">📔 Journal</span><h1>Your travel journal</h1><p>Six photos, the place, a rating, a short story and the people you met along the way.</p></div>
-    <div class="row wrap"><button class="btn ghost" id="playj">▶️ Play my journey</button><a class="btn ghost" href="#/album">${icon('album', 18)} Album</a><button class="btn primary" id="newj">${icon('plus', 18)} New entry</button></div></div>
-  ${entries.length ? `<div class="grid g2">${entries.map((e) => `<a class="card entry" href="#/journal/${e.id}" style="text-decoration:none;color:inherit">
-      <div class="cover" style="${e.photos?.length ? `background-image:url('${esc(covers[ci++])}')` : ''}"></div>
-      <div class="stack" style="gap:4px"><h2>${esc(e.title)}</h2><span class="small muted">${esc(e.place_name || '')}${e.visited_on ? ' · ' + fmtDate(e.visited_on) : ''}</span>
-        ${e.rating ? `<span style="color:var(--accent)">${'★'.repeat(e.rating)}<span style="color:#D6D2CA">${'★'.repeat(5 - e.rating)}</span></span>` : ''}
-        <span class="small">${esc((e.story || '').slice(0, 120))}${(e.story || '').length > 120 ? '…' : ''}</span>
-        ${e.people?.length ? `<span class="small muted">Met ${e.people.length} ${e.people.length === 1 ? 'person' : 'people'}</span>` : ''}</div></a>`).join('')}</div>`
-    : '<div class="empty">No journal entries yet. Your first trip story starts here.</div>'}`;
-  $('#newj').onclick = () => editEntry();
-  const pj = $('#playj'); if (pj) pj.onclick = async () => {
-    const withPh = entries.filter((e) => e.photos?.length).slice(0, 12); if (!withPh.length) { toast('Add photos to your entries to play your journey 📸'); return; }
-    const paths = withPh.flatMap((e) => e.photos.slice(0, 4)); const urls = await api.photoUrls(paths); let k = 0;
-    storyPlayer(withPh.flatMap((e) => e.photos.slice(0, 4).map(() => ({ e, img: urls[k++] }))), S.profile?.display_name || 'My journey');
-  };
+  // The journal is drawn as a rope of knots with endless scroll (journal-rope.js)
+  cleanup = await JournalRope(main, { api, esc, fmtDate, editEntry, storyPlayer, toast });
   if (r.q.get('new')) editEntry();
 }
 
