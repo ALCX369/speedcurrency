@@ -51,6 +51,8 @@ const MODES: Record<string, string> = {
   money: "Help with money abroad: currency conversion using the live rates given, typical daily costs at the destination, cash vs card, fees, and budgeting. Show calculations clearly.",
   journal: "Help the traveller journal: turn their notes into a vivid story of at most 528 characters, suggest a title, captions for photos, and a short packing or memory checklist if useful.",
 };
+// Chat "Make it a story": rewrite a rough chat message, no web search, plain text only.
+const POLISH_SYSTEM = "Rewrite the traveller's rough chat message into a short, warm, vivid travel story they will send to a friend in a chat. Keep every fact, name and place they gave; invent nothing. First person, plain text, no headings, no lists, no hashtags, at most 400 characters. Reply with the rewritten message only.";
 
 async function liveRates(): Promise<string> {
   try {
@@ -67,7 +69,8 @@ Deno.serve(async (req) => {
   if (!user) return new Response(JSON.stringify({ error: "Sign in first" }), { status: 401, headers: { ...cors, "Content-Type": "application/json" } });
 
   const { chat_id, message, mode = "plan" } = await req.json().catch(() => ({}));
-  const text = String(message ?? "").trim().slice(0, 2000);
+  const polish = mode === "polish";
+  const text = String(message ?? "").trim().slice(0, polish ? 1000 : 2000);
   const enc = new TextEncoder();
 
   const stream = new ReadableStream({
@@ -137,17 +140,17 @@ Rules: search the web for anything current (entry rules, prices, opening times, 
         let usedModel = cfg.model;
 
         if (useGemini) {
-          send({ type: "search", query: text.slice(0, 80) });
-          const [news, wiki] = await Promise.all([newsContext(text), wikiContext(text)]);
+          if (!polish) send({ type: "search", query: text.slice(0, 80) });
+          const [news, wiki] = polish ? [[], null] : await Promise.all([newsContext(text), wikiContext(text)]);
           for (const n of news) sources.push({ title: `${n.title} (${n.source}, ${n.date})`, url: n.url });
           if (wiki) sources.push({ title: `${wiki.title} – Wikipedia`, url: wiki.url });
           if (sources.length) send({ type: "sources", sources });
-          const gsystem = system.replace("Rules: search the web for anything current", "Rules: you cannot browse; use the recent headlines below when relevant and cite them as [1], [2]. For anything current")
+          const gsystem = polish ? POLISH_SYSTEM : system.replace("Rules: search the web for anything current", "Rules: you cannot browse; use the recent headlines below when relevant and cite them as [1], [2]. For anything current")
             + (news.length ? "\nRecent headlines (last 60 days):\n" + news.map((n, i) => `[${i + 1}] ${n.title} – ${n.source}, ${n.date}`).join("\n") : "\nNo recent headlines were found for this question.")
             + (wiki ? `\nBackground (Wikipedia: ${wiki.title}) [${news.length + 1}]: ${wiki.extract}` : "")
             + "\nWrite warmly and personally, like a friendly local guide, but stay factual."
             + "\nAlways end with an 'Official sources to check' section naming the embassy, immigration, park or tourism office the traveller should confirm with.";
-          const contents = [...history, { role: "user", content: text }].map((m) => ({ role: m.role === "assistant" ? "model" : "user", parts: [{ text: m.content }] }));
+          const contents = [...(polish ? [] : history), { role: "user", content: text }].map((m) => ({ role: m.role === "assistant" ? "model" : "user", parts: [{ text: m.content }] }));
           // Try each model; if one is busy (429/500/503), unknown (404/400) or too slow, move on to the next.
           let gr: Response | null = null;
           for (const m of GMODELS) {
@@ -183,7 +186,9 @@ Rules: search the web for anything current (entry rules, prices, opening times, 
             }
           }
         } else {
-        const body = {
+        const body = polish
+          ? { model: cfg.model, max_tokens: 500, stream: true, system: POLISH_SYSTEM, messages: [{ role: "user", content: text }] }
+          : {
           model: cfg.model,
           max_tokens: cfg.maxTokens,
           stream: true,

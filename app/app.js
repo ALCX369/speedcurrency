@@ -3,6 +3,7 @@
 import { Ready } from './ready.js';
 import { attachCurrencyPicker, codeOf } from './currency-picker.js';
 import { JournalRope } from './journal-rope.js';
+import { ChatPage } from './chat-wa.js';
 const C = window.SC_CONFIG || {};
 const DEMO = !C.SUPABASE_URL || !C.SUPABASE_ANON_KEY;
 let sb = null;
@@ -629,7 +630,7 @@ async function Home(main) {
       <span class="small" style="color:var(--on-dark-muted)" id="crate"></span>
     </section>
     <section class="stack">
-      ${next ? `<a class="card stack" href="#/trips/${next.id}" style="text-decoration:none;color:inherit">
+      ${next ? `<a class="card stack next-trip" href="#/trips/${next.id}" style="text-decoration:none">
           <div class="row between"><span class="eyebrow">✈️ Next trip</span>${countdown(next.start_date)}</div><h2>${esc(next.destination)}</h2>
           <span class="muted">${next.start_date ? fmtDate(next.start_date) : 'No dates yet'}${next.end_date ? ' – ' + fmtDate(next.end_date) : ''}</span>
           ${next.reminder?.on ? `<span class="badge ok">Reminder on · ${esc(next.reminder.place || '')}</span>` : ''}
@@ -1057,11 +1058,29 @@ async function JournalEntry(main, id) {
   const people = await api.profilesById([e.user_id, ...comments.map((c) => c.user_id)]);
   const author = people[e.user_id];
   const name = (p) => (p ? (p.display_name || '@' + (p.username || 'traveller')) : 'Traveller');
+  // Along the rope: the newer and older memory next to this one (own journal only)
+  let newer = null, older = null;
+  if (mine) {
+    const all = (await api.list('journal_entries', { order: 'visited_on' })).slice()
+      .sort((a, b) => String(b.visited_on || b.created_at).localeCompare(String(a.visited_on || a.created_at)));
+    const at = all.findIndex((x) => x.id === e.id);
+    if (at > 0) newer = all[at - 1];
+    if (at >= 0 && at < all.length - 1) older = all[at + 1];
+  }
+  const step = (x, dir) => `<a class="rope-step ${dir}" href="#/journal/${esc(x.id)}"><span class="knot" aria-hidden="true"><b>${dir === 'newer' ? '↑' : '↓'}</b></span>
+    <span><small>${dir === 'newer' ? 'Newer memory' : 'Older memory'}</small><b>${esc(x.title)}</b><small>${esc(x.place_name || '')}</small></span></a>`;
   main.innerHTML = `
-  <div class="page-head"><div><a href="#/${mine ? 'journal' : 'explore'}" class="small">← ${mine ? 'Journal' : 'Explore'}</a><h1>${esc(e.title)}</h1>
-    <p>${mine ? '' : `By <b>${esc(name(author))}</b>${author?.home_country ? ' · from ' + esc(author.home_country) : ''} · `}${esc(e.place_name || '')}${e.visited_on ? ' · ' + fmtDate(e.visited_on) : ''}</p></div>
-    <div class="row wrap">${mine ? '<button class="btn" id="jedit">Edit</button><button class="btn ghost" id="jdel">Delete</button>'
-      : `<a class="btn dark" href="#/messages?to=${e.user_id}">${icon('chat', 16)} Message</a><button class="btn ghost" id="jrep">Report</button>`}</div></div>
+  <header class="memory-hero${urls[0] ? '' : ' no-photo'}" style="${urls[0] ? `background-image:url('${esc(urls[0])}')` : ''}">
+    <a class="hero-back" href="#/${mine ? 'journal' : 'explore'}">${mine ? 'Back to your journey' : 'Back to Explore'}</a>
+    <div class="hero-text">
+      <span class="hero-place">${esc(e.place_name || 'Somewhere on the road')}${e.visited_on ? `, ${esc(fmtDate(e.visited_on))}` : ''}</span>
+      <h1>${esc(e.title)}</h1>
+      ${mine ? '' : `<span class="hero-by">By <b>${esc(name(author))}</b>${author?.home_country ? ` from ${esc(author.home_country)}` : ''}</span>`}
+    </div>
+    <div class="row wrap hero-actions">${mine ? '<button class="btn" id="jedit">Edit</button><button class="btn ghost" id="jdel">Delete</button>'
+      : `<a class="btn dark" href="#/messages?to=${e.user_id}">${icon('chat', 16)} Message</a><button class="btn ghost" id="jrep">Report</button>`}</div>
+  </header>
+  ${newer || older ? `<nav class="rope-nav" aria-label="Along your rope">${newer ? step(newer, 'newer') : ''}${older ? step(older, 'older') : ''}</nav>` : ''}
   <div class="grid g2" style="align-items:start">
     <section class="photos">${urls.map((u, i) => `<button class="ph" data-view="${i}" style="background-image:url('${esc(u)}')" aria-label="Open photo ${i + 1}"></button>`).join('') || '<div class="empty" style="grid-column:1/-1">No photos</div>'}</section>
     <section class="stack">
@@ -1401,8 +1420,8 @@ async function Explore(main) {
   // one story circle per traveller (their latest public entries)
   const byUser = []; for (const e of feed) { let g = byUser.find((x) => x.uid === e.user_id); if (!g) byUser.push(g = { uid: e.user_id, entries: [] }); g.entries.push(e); }
   main.innerHTML = `
-  <div class="page-head"><div><span class="eyebrow">🌍 Explore</span><h1>Travellers’ journeys</h1><p>Tap a circle to watch someone’s trip. Leave a reaction, a comment, or say hi.</p></div>
-    <a class="btn ghost" href="#/account?tab=tokens">${icon('gift', 18)} Invite friends</a></div>
+  <header class="rope-head"><div><h1>Travellers’ journeys</h1><p>Every traveller hangs from the rope. Pull one to watch their trip, then react, comment or say hi.</p></div>
+    <a class="btn ghost" href="#/account?tab=tokens">${icon('gift', 18)} Invite friends</a></header>
   ${byUser.length ? `<div class="story-bar" role="list" aria-label="Traveller stories">${byUser.map((g, i) => { const a = people[g.uid]; const cov = urlOf[g.entries.find((e) => e.photos?.length)?.photos?.[0]]; return `<button class="story-ring reveal" style="--i:${i}" data-story="${i}" role="listitem" aria-label="Watch ${esc(name(a))}'s journey">
       <span class="ring"><span class="face" style="${cov ? `background-image:url('${esc(cov)}')` : ''}">${cov ? '' : esc(name(a)[0].toUpperCase())}</span></span><span class="small">${esc(name(a).split(' ')[0].slice(0, 10))}</span></button>`; }).join('')}</div>` : ''}
   ${feed.length ? `<div class="journey-feed">${feed.map((e, i) => { const a = people[e.user_id]; const cov = urlOf[e.photos?.[0]]; return `<article class="journey reveal" style="--i:${i % 8}">
@@ -1481,53 +1500,8 @@ function storyPlayer(slides, who) {
    ========================================================= */
 async function Messages(main, r) {
   if (DEMO) { main.innerHTML = '<div class="empty">Chats work once you are signed in online.</div>'; return; }
-  const convs = await api.conversations();
-  const others = convs.map((c) => (c.user_a === S.user.id ? c.user_b : c.user_a));
-  let toId = r.q.get('to');
-  const people = await api.profilesById([...others, toId]);
-  let active = r.id || (toId ? convs.find((c) => [c.user_a, c.user_b].includes(toId))?.id : null) || null;
-  if (active) toId = null;
-  const name = (id) => { const p = people[id]; return p ? (p.display_name || '@' + (p.username || 'traveller')) : 'Traveller'; };
-  const conv = convs.find((c) => c.id === active);
-  const otherId = conv ? (conv.user_a === S.user.id ? conv.user_b : conv.user_a) : toId;
-  main.innerHTML = `
-  <div class="page-head"><div><span class="eyebrow">💬 Chats</span><h1>Messages</h1><p>${premium() ? 'Messaging is free on your plan.' : 'Each message uses 1 token. Free on Premium and Pro.'}</p></div>
-    <button class="btn dark" id="newchat">${icon('plus', 18)} New chat</button></div>
-  <div class="planner">
-    <aside class="history" aria-label="Conversations">${convs.length ? convs.map((c) => { const o = c.user_a === S.user.id ? c.user_b : c.user_a; return `<a href="#/messages/${c.id}" ${c.id === active ? 'aria-current="true"' : ''}><b>${esc(name(o))}</b><br><span class="date">${fmtDate(c.last_at)}</span></a>`; }).join('') : '<p class="small muted">No chats yet.</p>'}</aside>
-    <section class="chat">${otherId ? `
-      <div class="row between"><h2>${esc(name(otherId))}</h2><button class="btn small ghost" id="crep">Report or block</button></div>
-      <div class="msgs" id="dm" aria-live="polite"></div>
-      <form class="composer" id="dmf"><label class="sr" for="dmt">Message</label><textarea class="input" id="dmt" rows="1" maxlength="1000" placeholder="Write a message…"></textarea><button class="btn dark" aria-label="Send">${icon('send')}</button></form>`
-      : '<div class="empty">Pick a chat, or start a new one with a traveller’s @username.</div>'}</section>
-  </div>`;
-  $('#newchat').onclick = () => modal(`<h2>New chat</h2><form class="stack" id="ncf" style="margin-top:12px"><div class="field"><label for="ncu">Traveller’s username</label><input class="input" id="ncu" placeholder="@username" maxlength="21" required></div><button class="btn primary">Open chat</button></form>`, (p, close) => {
-    $('#ncf', p).onsubmit = async (e) => { e.preventDefault(); const f = await api.findTraveller($('#ncu', p).value.trim()); if (!f) return toast('No traveller with that username'); close(); location.hash = `#/messages?to=${f.id}`; };
-  });
-  if (!otherId) return;
-  $('#crep').onclick = () => reportFlow('user', otherId, otherId);
-  const dm = $('#dm');
-  const paint = (list) => { dm.innerHTML = list.map((m) => `<div class="${m.sender_id === S.user.id ? 'bubble-user' : 'bubble-them'}">${esc(m.body)}<span class="t">${new Date(m.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span></div>`).join('') || '<p class="small muted">Say hello 👋</p>'; dm.lastElementChild?.scrollIntoView({ block: 'end' }); };
-  let list = active ? await api.messages(active) : [];
-  paint(list);
-  if (active) {
-    const ch = sb.channel('dm-' + active).on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages', filter: `conversation_id=eq.${active}` }, (payload) => {
-      if (!list.find((m) => m.id === payload.new.id)) { list.push(payload.new); paint(list); }
-    }).subscribe();
-    cleanup = () => sb.removeChannel(ch);
-  }
-  const ta = $('#dmt');
-  ta.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); $('#dmf').requestSubmit(); } });
-  $('#dmf').onsubmit = async (e) => {
-    e.preventDefault();
-    const body = ta.value.trim(); if (!body) return;
-    ta.value = '';
-    try {
-      const convId = await api.sendMessage(otherId, body);
-      if (!active) { location.hash = `#/messages/${convId}`; return; }
-      const fresh = await api.messages(active); list = fresh; paint(list);
-    } catch (err) { ta.value = body; toast(err.message); }
-  };
+  // WhatsApp-style chats with Make it a story (chat-wa.js)
+  cleanup = await ChatPage(main, r, { api, S, sb, esc, fmtDate, modal, reportFlow, toast, premium });
 }
 
 /* =========================================================
