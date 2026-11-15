@@ -286,6 +286,7 @@ const api = {
     if (error) throw new Error(error.message);
     return data;
   },
+  async adminOverview() { const { data, error } = await sb.rpc('admin_overview'); if (error) throw new Error(error.message); return data; },
   async proofUrl(path) { const { data } = await sb.storage.from('proofs').createSignedUrl(path, 600); return data?.signedUrl; },
   async news(opts) {
     if (DEMO) throw new Error('Updates work once you are signed in online.');
@@ -425,7 +426,7 @@ const NAV = [['', 'Home', 'home'], ['planner', 'Assistant', 'planner'], ['trips'
 const TABS = ['', 'planner', 'updates', 'journal', 'messages', 'account'];
 function renderNav(active) {
   const link = ([r, l, ic]) => `<a href="#/${r}" ${active === r ? 'aria-current="page"' : ''}>${icon(ic)}<span>${l}</span></a>`;
-  $('#nav').innerHTML = S.user ? [...NAV, ...(S.isAdmin ? [['admin', 'Admin', 'shield']] : [])].map(link).join('') : '';
+  $('#nav').innerHTML = S.user ? [...NAV, ...(S.isAdmin ? [['admin', S.pending ? `Admin (${S.pending})` : 'Admin', 'shield']] : [])].map(link).join('') : '';
   $('#tabbar').innerHTML = S.user ? NAV.filter((n) => TABS.includes(n[0])).map(link).join('') : '';
   $('#tabbar').style.display = S.user ? '' : 'none';
   $('#side-ad').innerHTML = S.user ? adBlock('side') : '';
@@ -1710,9 +1711,28 @@ function eftFlow(pay, onDone) {
 async function Admin(main, r) {
   if (!S.isAdmin) { main.innerHTML = '<div class="notice">Admins only.</div>'; return; }
   const status = r.q.get('s') || 'pending';
-  const rows = await api.adminPayments(status);
+  const [rows, ov] = await Promise.all([api.adminPayments(status), api.adminOverview().catch(() => null)]);
+  let usdPerNad = 0; try { usdPerNad = (await loadRates('nad')).table.usd || 0; } catch { /* offline */ }
+  const estClaude = ov ? ov.q_claude_haiku * 0.015 + ov.q_claude_sonnet * 0.05 : 0;
+  const revUsd = ov ? ov.revenue_month * usdPerNad : 0;
+  const creditLeft = Math.max(0, (C.CLAUDE_CREDIT_USD || 0) - estClaude);
+  const tile = (n, l, hint = '') => `<div class="card stat reveal"><span class="big">${n}</span><span class="small muted">${l}</span>${hint ? `<span class="small">${hint}</span>` : ''}</div>`;
+  const overview = ov ? `
+    ${ov.pending ? `<a class="notice row reveal" href="#/admin?s=pending" style="text-decoration:none">🔔 <span><b>${ov.pending} payment${ov.pending === 1 ? '' : 's'} waiting</b>${ov.pending_with_proof ? ` · ${ov.pending_with_proof} with proof uploaded` : ''}. Check your FNB account, then activate below.</span></a>` : ''}
+    ${revUsd >= (C.TOPUP_FROM_USD || 50) ? `<a class="notice row reveal" href="https://console.anthropic.com/settings/billing" target="_blank" rel="noopener" style="text-decoration:none;background:#E6F2E8">💰 <span><b>You've earned about $${revUsd.toFixed(0)} this month.</b> Time to top up Claude credits so paid members keep live web search. ↗</span></a>` : ''}
+    ${creditLeft < 1.5 && (ov.q_claude_haiku + ov.q_claude_sonnet) > 0 ? `<a class="notice row reveal" href="https://console.anthropic.com/settings/billing" target="_blank" rel="noopener" style="text-decoration:none">⚠️ <span><b>Claude credit is probably low</b> (about $${creditLeft.toFixed(2)} left). Top up, or paid members fall back to Gemini. ↗</span></a>` : ''}
+    <div class="stats">
+      ${tile('N$' + money(ov.revenue_month, 0), 'Earned this month', usdPerNad ? `≈ $${revUsd.toFixed(0)} · ${ov.paid_count_month} payment${ov.paid_count_month === 1 ? '' : 's'}` : '')}
+      ${tile(ov.premium + ov.pro, 'Paying members', `${ov.premium} Premium · ${ov.pro} Pro${ov.expiring_7d ? ` · ${ov.expiring_7d} ending this week` : ''}`)}
+      ${tile(ov.members, 'All members', `+${ov.new_members_month} this month`)}
+      ${tile(ov.q_month, 'AI answers this month', `${ov.q_claude_haiku + ov.q_claude_sonnet} Claude · ${ov.q_gemini} free Gemini`)}
+      ${tile('$' + estClaude.toFixed(2), 'Est. Claude cost', `of $${C.CLAUDE_CREDIT_USD || 0} credit`)}
+      ${tile('N$' + money(ov.revenue_total, 0), 'Earned all time', `${ov.reviews_month} reviews · ${ov.reports_open} reports (30 d)`)}
+    </div>
+    <details class="card reveal" style="margin:12px 0"><summary><b>Recent activity</b></summary><div class="list" style="margin-top:8px">${(ov.recent || []).slice(0, 15).map((x) => `<div class="row between"><span>${{ signup: '👋', payment: '💳', review: '⭐' }[x.kind] || '•'} ${esc(x.text)}</span><span class="small muted">${ago(x.at)}</span></div>`).join('')}</div></details>` : '';
   const tab = (k, l) => `<a class="btn small ${status === k ? 'dark' : 'ghost'}" href="#/admin?s=${k}">${l}</a>`;
-  main.innerHTML = `<div class="page-head"><div><span class="eyebrow">Admin</span><h1>EFT payments</h1><p>Check your FNB account for the reference, then activate.</p></div></div>
+  main.innerHTML = `<div class="page-head"><div><span class="eyebrow">Admin</span><h1>Your business</h1><p>Money, members, AI use and payments to approve.</p></div><a class="btn ghost small" href="https://console.anthropic.com/settings/billing" target="_blank" rel="noopener">Claude credits ↗</a></div>
+    ${overview}<h2 style="margin:18px 0 10px">EFT payments</h2>
     <div class="row wrap" style="margin-bottom:12px">${tab('pending', 'To check')}${tab('paid', 'Paid')}${tab('rejected', 'Rejected')}${tab('all', 'All')}<button class="btn small ghost" id="csv">Download CSV</button></div>
     <div class="stack">${rows.length ? rows.map((x) => `<div class="card stack" style="padding:16px">
       <div class="row between wrap"><b>${esc(x.display_name || x.email)}</b><span class="badge ${x.status === 'paid' ? 'dark' : ''}">${esc(x.status)}</span></div>
@@ -1750,6 +1770,7 @@ async function boot() {
   if (!(await mfaGate())) { S.user = null; return; }
   S.profile = await api.profile();
   try { S.isAdmin = await api.isAdmin(); } catch { S.isAdmin = false; }
+  if (S.isAdmin) { try { S.pending = (await api.adminOverview()).pending || 0; } catch { S.pending = 0; } }
   if (!DEMO && S.profile && !S.profile.home_country) { try { await api.register(); S.profile = await api.profile(); } catch { /* retried next load */ } }
   startReminders();
 }

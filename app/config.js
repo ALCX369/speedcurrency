@@ -24,6 +24,9 @@ window.SC_CONFIG = {
     BRANCH_CODE: "280678",
     SWIFT: "FIRNNANX",
   },
+  // Admin money tracker: Claude credit you bought (USD) and when to top up (monthly revenue in USD)
+  CLAUDE_CREDIT_USD: 5,
+  TOPUP_FROM_USD: 50,
   PAYMENTS_EMAIL: "gmega.url@gmail.com",
   SHOP_URL: "https://alcx369.myshopify.com/collections/christmas-gift-shop",
 };
