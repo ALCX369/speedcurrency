@@ -18,6 +18,29 @@ const NA_SITES = [
   "az.com.na", "republikein.com.na", "nampa.org", "travelnewsnamibia.com", "economist.com.na", "futuremedia.com.na",
 ];
 const CACHE_MS = 2 * 60 * 60 * 1000;
+const GKEY = Deno.env.get("GEMINI_API_KEY") ?? "";
+const GMODELS = (Deno.env.get("GEMINI_MODEL") ?? "gemini-3.8-flash,gemini-3.5-flash-lite,gemini-2.5-flash").split(",").map((x) => x.trim()).filter(Boolean);
+
+// Premium/Pro: a short, friendly AI summary of the headlines (free Gemini), cached with the news.
+async function makeBrief(place: string, items: { title: string; source: string; published: string }[]): Promise<string> {
+  if (!GKEY || !items.length) return "";
+  const prompt = `Write a warm, upbeat "Quick brief" for a traveller interested in ${place}, in a friendly local-guide tone, in 3 to 4 short bullet points starting with "- " and one fitting emoji each. Only use facts from these headlines; don't invent details. Finish with one line starting "Tip:" with a practical suggestion.\n\n` +
+    items.slice(0, 12).map((x) => `- ${x.title} (${x.source}, ${x.published.slice(0, 10)})`).join("\n");
+  for (const m of GMODELS) {
+    try {
+      const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent`, {
+        method: "POST", headers: { "content-type": "application/json", "x-goog-api-key": GKEY },
+        body: JSON.stringify({ contents: [{ role: "user", parts: [{ text: prompt }] }], generationConfig: { maxOutputTokens: 600, temperature: 0.7 } }),
+        signal: AbortSignal.timeout(15000),
+      });
+      if (r.status === 404 || r.status === 400) continue;
+      if (!r.ok) return "";
+      const j = await r.json();
+      return (j.candidates?.[0]?.content?.parts ?? []).map((x: { text?: string; thought?: boolean }) => (x.thought ? "" : x.text ?? "")).join("").trim().slice(0, 1500);
+    } catch { return ""; }
+  }
+  return "";
+}
 
 const decode = (s: string) => s.replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, "$1")
   .replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&amp;/g, "&").trim();
@@ -57,8 +80,23 @@ Deno.serve(async (req) => {
   const key = `${country}|${q}`;
 
   const db = admin();
+  const wantBrief = body.brief === true;
+  let paid = false;
+  if (wantBrief) {
+    const { data: p } = await db.from("profiles").select("plan, premium_until").eq("id", user.id).single();
+    paid = !!p && ["premium", "pro"].includes(p.plan) && !!p.premium_until && new Date(p.premium_until) > new Date();
+  }
+  const withBrief = async (items: { title: string; source: string; published: string }[], fresh: boolean) => {
+    if (!wantBrief || !paid) return {};
+    const bkey = "brief|" + key;
+    const { data: b } = await db.from("news_cache").select("data, fetched_at").eq("key", bkey).maybeSingle();
+    if (b && !fresh && Date.now() - Date.parse(b.fetched_at) < CACHE_MS) return { brief: (b.data as { text?: string })?.text ?? "" };
+    const text = await makeBrief(place, items);
+    if (text) await db.from("news_cache").upsert({ key: bkey, data: { text }, fetched_at: new Date().toISOString() });
+    return { brief: text };
+  };
   const { data: cached } = await db.from("news_cache").select("data, fetched_at").eq("key", key).maybeSingle();
-  if (cached && Date.now() - Date.parse(cached.fetched_at) < CACHE_MS) return json({ items: cached.data, fetched_at: cached.fetched_at, cached: true });
+  if (cached && Date.now() - Date.parse(cached.fetched_at) < CACHE_MS) return json({ items: cached.data, fetched_at: cached.fetched_at, cached: true, ...(await withBrief(cached.data, false)) });
 
   const url = `https://news.google.com/rss/search?q=${encodeURIComponent(q)}&hl=en-${country}&gl=${country}&ceid=${country}:en`;
   let items: ReturnType<typeof parse> = [];
@@ -77,5 +115,5 @@ Deno.serve(async (req) => {
     .sort((a, b) => Date.parse(b.published) - Date.parse(a.published)).slice(0, 40);
   const fetched_at = new Date().toISOString();
   await db.from("news_cache").upsert({ key, data: items, fetched_at });
-  return json({ items, fetched_at, cached: false });
+  return json({ items, fetched_at, cached: false, ...(await withBrief(items, true)) });
 });

@@ -24,6 +24,19 @@ async function newsContext(q: string): Promise<{ title: string; url: string; sou
     }).filter((x) => x.title && x.url.startsWith("https://"));
   } catch { return []; }
 }
+// Free encyclopedia background for the place in the question (Wikipedia, no key).
+async function wikiContext(q: string): Promise<{ title: string; extract: string; url: string } | null> {
+  try {
+    const words = q.replace(/[^\p{L}\p{N} ]/gu, " ").split(/\s+/).filter((w) => w.length > 3).slice(0, 6).join(" ");
+    if (!words) return null;
+    const s = await fetch(`https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(words)}&srlimit=1&format=json`, { headers: { "User-Agent": "SpeedCurrency/1.0 (gmega.url@gmail.com)" }, signal: AbortSignal.timeout(5000) }).then((r) => r.json());
+    const title = s?.query?.search?.[0]?.title;
+    if (!title) return null;
+    const p = await fetch(`https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(title)}`, { headers: { "User-Agent": "SpeedCurrency/1.0 (gmega.url@gmail.com)" }, signal: AbortSignal.timeout(5000) }).then((r) => r.json());
+    if (!p?.extract) return null;
+    return { title, extract: String(p.extract).slice(0, 1400), url: p.content_urls?.desktop?.page ?? `https://en.wikipedia.org/wiki/${encodeURIComponent(title)}` };
+  } catch { return null; }
+}
 const PLANS = {
   free: { model: Deno.env.get("MODEL_FREE") ?? "claude-haiku-5-5", limit: Number(Deno.env.get("LIMIT_FREE") ?? 3), searches: 2, maxTokens: 1500 },
   premium: { model: Deno.env.get("MODEL_PREMIUM") ?? "claude-haiku-5-5", limit: Number(Deno.env.get("LIMIT_PREMIUM") ?? 60), searches: 3, maxTokens: 2000 },
@@ -91,7 +104,9 @@ Deno.serve(async (req) => {
           if (error) throw error;
           chatId = c.id;
         }
-        const useGemini = !KEY;
+        // Paid members get Claude with live web search (billed to the owner's Anthropic account, never shown to users).
+        // Free members use free Gemini with a research step. If only one key exists, everyone uses that one.
+        const useGemini = !KEY || (tier === "free" && !!GKEY);
         send({ type: "start", chat_id: chatId, model: useGemini ? GMODELS[0] : cfg.model, tier });
 
         const { data: hist } = await db.from("planner_messages").select("role, content").eq("chat_id", chatId)
@@ -117,11 +132,14 @@ Rules: search the web for anything current (entry rules, prices, opening times, 
 
         if (useGemini) {
           send({ type: "search", query: text.slice(0, 80) });
-          const news = await newsContext(text);
+          const [news, wiki] = await Promise.all([newsContext(text), wikiContext(text)]);
           for (const n of news) sources.push({ title: `${n.title} (${n.source}, ${n.date})`, url: n.url });
+          if (wiki) sources.push({ title: `${wiki.title} – Wikipedia`, url: wiki.url });
           if (sources.length) send({ type: "sources", sources });
           const gsystem = system.replace("Rules: search the web for anything current", "Rules: you cannot browse; use the recent headlines below when relevant and cite them as [1], [2]. For anything current")
             + (news.length ? "\nRecent headlines (last 60 days):\n" + news.map((n, i) => `[${i + 1}] ${n.title} – ${n.source}, ${n.date}`).join("\n") : "\nNo recent headlines were found for this question.")
+            + (wiki ? `\nBackground (Wikipedia: ${wiki.title}) [${news.length + 1}]: ${wiki.extract}` : "")
+            + "\nWrite warmly and personally, like a friendly local guide, but stay factual."
             + "\nAlways end with an 'Official sources to check' section naming the embassy, immigration, park or tourism office the traveller should confirm with.";
           const contents = [...history, { role: "user", content: text }].map((m) => ({ role: m.role === "assistant" ? "model" : "user", parts: [{ text: m.content }] }));
           let gr: Response | null = null;

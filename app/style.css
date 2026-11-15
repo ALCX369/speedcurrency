@@ -250,3 +250,5 @@ a.chip{text-decoration:none;color:var(--ink)}
 
 /* foldables: use both screens side by side */
 @media (horizontal-viewport-segments:2){.paper,.hero,.grid.g2{grid-template-columns:env(viewport-segment-width 0 0,1fr) env(viewport-segment-width 1 0,1fr);column-gap:calc(env(viewport-segment-left 1 0,0px) - env(viewport-segment-right 0 0,0px))}}
+.brief{display:grid;gap:6px;padding:16px 18px;margin-bottom:14px;border-radius:var(--r-lg);background:linear-gradient(135deg,#FFF4EC,#FFE3D3);border:1px solid #FFD2B8;color:var(--ink);text-decoration:none}
+.brief .md p{margin:4px 0}.brief.teaser{background:linear-gradient(135deg,#F7F6F2,#FFF0E6)}

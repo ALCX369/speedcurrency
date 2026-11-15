@@ -308,6 +308,24 @@ const api = {
     Object.assign(out, { profile, trips, journal_entries: journal, pins, assistant_chats: chats, assistant_messages: msgs, payments: pays, tokens: ledger, comments, messages_sent: sent });
     return out;
   },
+  async reviews(keys) {
+    if (DEMO || !keys.length) return [];
+    const { data } = await sb.from('place_reviews').select('*').in('place_key', keys).order('created_at', { ascending: false }).limit(300);
+    return data || [];
+  },
+  async addReview(place, rating, body, file) {
+    if (DEMO) throw new Error('Reviews work once you are signed in online.');
+    let photo_path = null;
+    if (file) {
+      const blob = await shrink(file, 1280, 0.8);
+      photo_path = `${S.user.id}/${uid()}.jpg`;
+      const { error } = await sb.storage.from('reviews').upload(photo_path, blob, { contentType: 'image/jpeg' });
+      if (error) throw new Error(error.message);
+    }
+    const { error } = await sb.from('place_reviews').insert({ place_key: place.key, place_name: place.name.slice(0, 120), town: (place.town || '').slice(0, 80), user_id: S.user.id, rating, body, photo_path });
+    if (error) throw new Error(/duplicate/.test(error.message) ? 'You already reviewed this place.' : /row-level|policy/.test(error.message) ? 'Reviews are for Premium and Pro members.' : error.message);
+  },
+  reviewPhoto(path) { return path ? sb.storage.from('reviews').getPublicUrl(path).data.publicUrl : ''; },
   async findTraveller(handle) {
     if (DEMO) return null;
     const { data } = await sb.rpc('find_traveller', { handle: handle.replace(/^@/, '') });
@@ -1172,10 +1190,10 @@ async function Account(main, r) {
       </div>
 
       <div class="stack" id="plans"><h2>Plans</h2><p class="small muted" style="margin:0">${used} of ${planLimit()} assistant questions used this month.</p>
-        ${planCard('free', 'Free', 'N$0', '', [`${C.FREE_PLANS_PER_MONTH} Claude questions a month`, 'Journal, map, trips, converter', '20 tokens to start (40 if invited)', 'Ads shown'], '')}
-        ${planCard('premium', 'Premium', `N$${C.PRICE_MONTHLY}/mo`, `or N$${money(C.PRICE_YEARLY, 0)}/year`, [`${C.PREMIUM_PLANS_PER_MONTH} Claude questions a month with live web search`, 'Free messaging and comments', '100 bonus tokens each payment', 'Digital album, no ads'],
+        ${planCard('free', 'Free', 'N$0', '', [`${C.FREE_PLANS_PER_MONTH} AI questions a month (Gemini + news research)`, 'Journal, map, trips, converter, Namibia explorer', '20 tokens to start (40 if invited)', 'Ads shown'], '')}
+        ${planCard('premium', 'Premium', `N$${C.PRICE_MONTHLY}/mo`, `or N$${money(C.PRICE_YEARLY, 0)}/year`, [`${C.PREMIUM_PLANS_PER_MONTH} AI questions a month with live research`, '✨ AI Quick brief on every place’s news', '💬 Post reviews & photos of places', 'Free messaging and comments', '100 bonus tokens each payment', 'Digital album, no ads'],
           t === 'free' ? `<div class="row wrap"><button class="btn primary" data-pay="monthly">Monthly</button><button class="btn" data-pay="yearly">Yearly</button></div>` : '')}
-        ${planCard('pro', 'Pro', `N$${C.PRICE_PRO_MONTHLY}/mo`, `or N$${money(C.PRICE_PRO_YEARLY, 0)}/year`, [`${C.PRO_PLANS_PER_MONTH} questions on Claude Sonnet, deeper research`, 'Tailored adventures, money and journal coaching', '300 bonus tokens each payment', 'Everything in Premium'],
+        ${planCard('pro', 'Pro', `N$${C.PRICE_PRO_MONTHLY}/mo`, `or N$${money(C.PRICE_PRO_YEARLY, 0)}/year`, [`${C.PRO_PLANS_PER_MONTH} AI questions a month, deeper research`, 'Tailored adventures, money and journal coaching', '300 bonus tokens each payment', 'Everything in Premium'],
           t !== 'pro' ? `<div class="row wrap"><button class="btn primary" data-pay="pro_monthly">Monthly</button><button class="btn" data-pay="pro_yearly">Yearly</button></div>` : '')}
         ${premium() ? `<p class="small muted">Active until ${fmtDate(p.premium_until)}.</p>` : ''}
         <span class="small muted">Pay by EFT into our FNB Namibia account. Your plan is switched on as soon as we confirm your payment.</span>
@@ -1422,7 +1440,7 @@ async function nearby(lat, lng, kind, radius = 6000) {
     const la = e.lat ?? e.center?.lat, lo = e.lon ?? e.center?.lon;
     const dist = 6371 * 2 * Math.asin(Math.sqrt(Math.sin(rad(la - lat) / 2) ** 2 + Math.cos(rad(lat)) * Math.cos(rad(la)) * Math.sin(rad(lo - lng) / 2) ** 2));
     const t = e.tags;
-    return { name: t.name, kind: (t.cuisine || t.tourism || t.amenity || t.shop || '').replace(/_/g, ' ').replace(/;/g, ', '), lat: la, lng: lo, dist,
+    return { key: `${e.type}/${e.id}`, name: t.name, kind: (t.cuisine || t.tourism || t.amenity || t.shop || '').replace(/_/g, ' ').replace(/;/g, ', '), lat: la, lng: lo, dist,
       phone: t.phone || t['contact:phone'] || t['contact:mobile'] || '', web: /^https?:\/\//.test(t.website || t['contact:website'] || '') ? (t.website || t['contact:website']) : '', hours: t.opening_hours || '',
       street: [t['addr:street'], t['addr:housenumber']].filter(Boolean).join(' '), brand: t.brand || '' };
   }).sort((a, b) => a.dist - b.dist).slice(0, 24);
@@ -1479,14 +1497,16 @@ async function Updates(main, r) {
     const box = $('#nlist'); if (!box) return;
     if (!quiet) box.innerHTML = '<div class="skeleton"><span></span><span></span><span></span></div>';
     try {
-      const res = await api.news({ place: st.place, days: st.days, topic: st.topic, source: st.source, country: S.profile?.home_country_code || 'NA' });
+      const res = await api.news({ place: st.place, days: st.days, topic: st.topic, source: st.source, country: S.profile?.home_country_code || 'NA', brief: premium() });
       if (!$('#nlist')) return;
       const items = res.items || [];
       if (!items.length) { box.innerHTML = `<div class="notice">No ${st.topic === 'all' ? '' : esc(NEWS_TOPICS.find(([k]) => k === st.topic)[1].toLowerCase()) + ' '}news about <b>${esc(st.place)}</b> ${esc(span())}. Try a longer timeframe or a bigger place.</div>`; return; }
       const [lead, ...rest] = items;
       const story = (x, i) => `<article class="story reveal" style="--i:${i}"><span class="kicker">${esc(x.source || 'News')} · ${ago(x.published)}</span>
         <a href="${esc(x.link)}" target="_blank" rel="noopener noreferrer"><h3>${esc(x.title)}</h3></a></article>`;
-      box.innerHTML = `<div class="row between small muted" style="margin-bottom:8px"><span>${items.length} stories · ${esc(st.place)} · ${esc(span())}</span><span>Updated ${ago(res.fetched_at)}${res.stale ? ' (offline copy)' : ''}</span></div>
+      const brief = res.brief ? `<div class="brief reveal"><span class="kicker">✨ Quick brief · AI summary</span><div class="md">${md(res.brief)}</div></div>`
+        : !premium() ? `<a class="brief teaser reveal" href="#/account?tab=plans"><span class="kicker">✨ Quick brief</span><span>Get a friendly AI summary of every place's news with Premium.</span></a>` : '';
+      box.innerHTML = brief + `<div class="row between small muted" style="margin-bottom:8px"><span>${items.length} stories · ${esc(st.place)} · ${esc(span())}</span><span>Updated ${ago(res.fetched_at)}${res.stale ? ' (offline copy)' : ''}</span></div>
         <article class="lead reveal"><span class="kicker">${esc(lead.source || 'News')} · ${ago(lead.published)}</span><a href="${esc(lead.link)}" target="_blank" rel="noopener noreferrer"><h2>${esc(lead.title)}</h2></a>
           <div class="row wrap"><a class="btn small dark" href="#/planner?q=${encodeURIComponent('What does this mean for travellers going to ' + st.place + ': ' + lead.title)}">${icon('planner', 16)} Ask the assistant</a></div></article>
         <div class="columns">${rest.map(story).join('')}</div>`;
@@ -1601,6 +1621,7 @@ async function Namibia(main, r) {
         <a class="chip" href="${esc(gmaps(`${x.name} ${x.lat},${x.lng}`))}" target="_blank" rel="noopener noreferrer">⭐ Reviews & directions</a>
         ${x.phone ? `<a class="chip" href="tel:${esc(x.phone.split(';')[0].replace(/[^+\d]/g, ''))}">📞 Call</a>` : ''}
         ${x.web ? `<a class="chip" href="${esc(safeUrl(x.web))}" target="_blank" rel="noopener noreferrer">🌐 Website / book</a>` : ''}
+        <button class="chip" data-rev="${i}">💬 ${x.rc ? `★ ${x.avg.toFixed(1)} · ${x.rc} member review${x.rc === 1 ? '' : 's'}` : 'Member reviews'}</button>
       </div></div>`;
   const loadPlaces = async () => {
     const box = $('#xplaces'); if (!box) return;
@@ -1608,7 +1629,10 @@ async function Namibia(main, r) {
     try {
       if (!st.geo) st.geo = await geocode(town.replace(/\s*\(.*\)$/, '') + ', Namibia');
       const list = await nearby(st.geo.lat, st.geo.lng, st.cat, /Park|Canyon|Reserve|Sossusvlei|Falls/.test(town) ? 25000 : 8000);
+      const revs = await api.reviews(list.map((x) => x.key)).catch(() => []);
+      for (const x of list) { const rs = revs.filter((v) => v.place_key === x.key); x.reviews = rs; x.rc = rs.length; x.avg = rs.length ? rs.reduce((a, v) => a + v.rating, 0) / rs.length : 0; x.town = town; }
       if (!$('#xplaces')) return;
+      st.list = list;
       box.innerHTML = list.length ? list.map(placeRow).join('')
         : `<p class="small muted">Nothing mapped here yet. <a href="${esc(gmaps(EXPLORE_CATS[st.cat][0] + ' near ' + town + ', Namibia'))}" target="_blank" rel="noopener">Search Google Maps</a></p>`;
     } catch (e) { if ($('#xplaces')) box.innerHTML = `<p class="small muted">${esc(e.message)}. <a href="${esc(gmaps(EXPLORE_CATS[st.cat][0] + ' near ' + town))}" target="_blank" rel="noopener">Open Google Maps</a></p>`; }
@@ -1624,8 +1648,39 @@ async function Namibia(main, r) {
         : `<p class="small muted">Nothing in the last ${days} days.</p>`;
     } catch (e) { if ($(id)) box.innerHTML = `<p class="small muted">${esc(e.message)}</p>`; }
   };
+  $('#xplaces').addEventListener('click', (e) => { const b = e.target.closest('[data-rev]'); if (b && st.list) reviewSheet(st.list[+b.dataset.rev], loadPlaces); });
   $$('#xcat .chip').forEach((b) => b.onclick = () => { st.cat = b.dataset.cat; mark(); loadPlaces(); });
   mark(); loadPlaces(); loadNews('#xnews', 'all', 30, 6); loadNews('#xevents', 'events', 60, 4);
+}
+
+/* ---------- member reviews & photos (write: Premium/Pro) ---------- */
+function reviewSheet(place, onDone) {
+  const stars = (n) => '★'.repeat(n) + '☆'.repeat(5 - n);
+  const list = (place.reviews || []).map((v) => `<div class="stack" style="gap:4px;padding:10px 0;border-bottom:1px solid #00000010">
+      <div class="row between"><b style="color:var(--accent-dark)">${stars(v.rating)}</b><span class="small muted">${fmtDate(v.created_at)}</span></div>
+      <span>${esc(v.body)}</span>${v.photo_path ? `<img src="${esc(api.reviewPhoto(v.photo_path))}" alt="Photo of ${esc(place.name)}" loading="lazy" style="width:100%;max-height:220px;object-fit:cover;border-radius:12px">` : ''}</div>`).join('');
+  const form = premium() ? `<form class="stack" id="rvf"><h3>Write a review</h3>
+      <div class="row" role="radiogroup" aria-label="Rating" id="rvstars">${[1, 2, 3, 4, 5].map((n) => `<button type="button" class="chip" data-n="${n}" aria-label="${n} stars">${n}★</button>`).join('')}</div>
+      <textarea class="input" id="rvb" maxlength="500" rows="3" placeholder="What was it like? Service, prices, tips…" required></textarea>
+      <div class="field"><label for="rvp" class="small muted">Add a photo (optional)</label><input class="input" id="rvp" type="file" accept="image/*"></div>
+      <button class="btn primary">Post review</button></form>`
+    : `<a class="notice" href="#/account?tab=plans" style="text-decoration:none">✨ Premium and Pro members can post reviews and photos. Everyone can read them.</a>`;
+  modal(`<div class="stack"><h2>${esc(place.name)}</h2><span class="small muted">${esc(place.kind)}${place.town ? ' · ' + esc(place.town) : ''}</span>
+    <a class="chip" href="${esc(gmaps(`${place.name} ${place.lat},${place.lng}`))}" target="_blank" rel="noopener noreferrer" style="align-self:flex-start">⭐ Google reviews & photos</a>
+    <div>${list || '<p class="small muted">No member reviews yet. Be the first!</p>'}</div>${form}
+    <button class="btn ghost" type="button" data-close>Close</button></div>`, (m, close) => {
+    let rating = 0;
+    $$('#rvstars [data-n]', m).forEach((b) => b.onclick = () => { rating = +b.dataset.n; $$('#rvstars [data-n]', m).forEach((x) => x.setAttribute('aria-pressed', String(+x.dataset.n <= rating))); });
+    const f = $('#rvf', m);
+    if (f) f.onsubmit = async (e) => {
+      e.preventDefault();
+      if (!rating) { toast('Choose a star rating'); return; }
+      const body = $('#rvb', m).value.trim(); if (body.length < 3) { toast('Write a few words'); return; }
+      const btn = $('button.primary', f); btn.disabled = true;
+      try { await api.addReview(place, rating, body, $('#rvp', m).files[0]); toast('Thanks! Your review is live.'); close(); onDone?.(); }
+      catch (err) { toast(err.message); btn.disabled = false; }
+    };
+  });
 }
 
 /* ---------- EFT payments ---------- */
