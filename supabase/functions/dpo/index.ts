@@ -59,10 +59,12 @@ Deno.serve(async (req) => {
     if (pay.status === "paid") return json({ ok: true });
     const res = await call(`<?xml version="1.0" encoding="utf-8"?><API3G><CompanyToken>${esc(COMPANY)}</CompanyToken><Request>verifyToken</Request><TransactionToken>${esc(token)}</TransactionToken></API3G>`);
     if (tag(res, "Result") !== "000") return json({ ok: false, status: tag(res, "ResultExplanation") || "Not paid yet" });
+    // Mark paid only if still pending, so two checks at the same moment can't credit the plan twice.
+    const { data: claimed } = await db.from("payments").update({ status: "paid" }).eq("id", pay.id).eq("status", "pending").select("id");
+    if (!claimed?.length) return json({ ok: true });
     const { data: prof } = await db.from("profiles").select("premium_until, plan").eq("id", user.id).single();
     const base = prof?.premium_until && new Date(prof.premium_until) > new Date() ? new Date(prof.premium_until) : new Date();
     base.setUTCDate(base.getUTCDate() + PRICES[pay.plan].days);
-    await db.from("payments").update({ status: "paid" }).eq("id", pay.id);
     const tier = PRICES[pay.plan].tier === "pro" || prof?.plan === "pro" && new Date(prof?.premium_until ?? 0) > new Date() ? "pro" : "premium";
     await db.from("profiles").update({ plan: tier, premium_until: base.toISOString() }).eq("id", user.id);
     await db.from("token_ledger").insert({ user_id: user.id, delta: tier === "pro" ? 300 : 100, reason: `${tier === "pro" ? "Pro" : "Premium"} tokens`, ref_id: pay.id });

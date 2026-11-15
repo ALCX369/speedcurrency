@@ -66,14 +66,19 @@ Deno.serve(async (req) => {
   const user = await currentUser(req);
   if (!user) return new Response(JSON.stringify({ error: "Sign in first" }), { status: 401, headers: { ...cors, "Content-Type": "application/json" } });
 
-  const { chat_id, message, mode = "plan" } = await req.json();
+  const { chat_id, message, mode = "plan" } = await req.json().catch(() => ({}));
   const text = String(message ?? "").trim().slice(0, 2000);
   const enc = new TextEncoder();
 
   const stream = new ReadableStream({
     async start(ctrl) {
       const send = (obj: unknown) => ctrl.enqueue(enc.encode(`data: ${JSON.stringify(obj)}\n\n`));
-      const fail = (msg: string, extra: Record<string, unknown> = {}) => { send({ type: "error", error: msg, ...extra }); ctrl.close(); };
+      let spent = false; // tokens already taken for this question
+      const fail = (msg: string, extra: Record<string, unknown> = {}) => {
+        // give the tokens back if the answer failed after we took them
+        if (spent) { spent = false; admin().from("token_ledger").insert({ user_id: user.id, delta: EXTRA_COST, reason: "Refund: question failed" }).then(() => {}, () => {}); }
+        send({ type: "error", error: msg, ...extra }); ctrl.close();
+      };
       try {
         if (!text) return fail("Type your question");
         if (!KEY && !GKEY) return fail("The assistant isn't connected yet. Add the GEMINI_API_KEY or ANTHROPIC_API_KEY secret in Supabase.");
@@ -86,14 +91,13 @@ Deno.serve(async (req) => {
         const monthStart = new Date(); monthStart.setUTCDate(1); monthStart.setUTCHours(0, 0, 0, 0);
         const { count } = await db.from("planner_messages").select("id", { count: "exact", head: true })
           .eq("user_id", user.id).eq("role", "user").gte("created_at", monthStart.toISOString());
-        let usedTokens = false;
         if ((count ?? 0) >= cfg.limit) {
-          const { data: bal } = await db.from("token_ledger").select("delta").eq("user_id", user.id);
-          const balance = (bal ?? []).reduce((a: number, r: { delta: number }) => a + r.delta, 0);
-          if (balance < EXTRA_COST) {
+          // Take the tokens now, under a database lock, so two questions at once can't spend the same tokens.
+          const { error: spendErr } = await db.rpc("_spend_tokens", { uid: user.id, amount: EXTRA_COST, why: "Extra AI question", ref: null });
+          if (spendErr) {
             return fail(`You've used your ${cfg.limit} questions this month. Upgrade your plan or invite friends to earn tokens (${EXTRA_COST} tokens = 1 extra question).`, { upgrade: true });
           }
-          usedTokens = true;
+          spent = true;
         }
 
         let chatId = chat_id as string | undefined;
@@ -242,7 +246,7 @@ Rules: search the web for anything current (entry rules, prices, opening times, 
           { chat_id: chatId, user_id: user.id, role: "assistant", content: answer || "No answer.", data },
         ]);
         await db.from("planner_chats").update({ updated_at: new Date().toISOString() }).eq("id", chatId);
-        if (usedTokens) await db.from("token_ledger").insert({ user_id: user.id, delta: -EXTRA_COST, reason: "Extra AI question", ref_id: chatId });
+        spent = false; // answer delivered: the tokens stay spent
         send({ type: "done", chat_id: chatId, used: (count ?? 0) + 1, limit: cfg.limit, sources: data.sources });
         ctrl.close();
       } catch (e) {

@@ -1,7 +1,7 @@
 # SpeedCurrency app – setup (free services only)
 
 The app lives in `app/` and is live at https://alcx369.github.io/speedcurrency/app/
-Supabase project: `speedcurrency` (ref wuhrbpuwjwmlnmvvkcaa, London). Database, photo storage and the register, planner and dpo functions are already set up.
+Supabase project: `speedcurrency` (ref wuhrbpuwjwmlnmvvkcaa, London). Database, photo storage and the register, assistant, news, account and dpo functions are set up (planner is retired).
 Until step 1–2 are done it runs in **demo mode** (data stays on the device).
 
 | Service | Used for | Free plan |
@@ -26,7 +26,9 @@ Install the Supabase CLI, then from this folder:
 supabase login
 supabase link --project-ref YOUR_PROJECT_REF
 supabase functions deploy register
-supabase functions deploy planner
+supabase functions deploy assistant
+supabase functions deploy news
+supabase functions deploy account
 supabase functions deploy dpo
 ```
 The assistant runs in the `assistant` server function. Add your Claude API key as the secret `ANTHROPIC_API_KEY` (Supabase → Edge Functions → Secrets). Get it at console.anthropic.com (add credit first).
