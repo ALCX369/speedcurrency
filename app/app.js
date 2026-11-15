@@ -1,5 +1,6 @@
 // SpeedCurrency web app (MVP). Plain JavaScript, no build step.
 // Backend: Supabase (auth, database, photo storage, server functions). Without settings it runs in demo mode.
+import { Ready } from './ready.js';
 const C = window.SC_CONFIG || {};
 const DEMO = !C.SUPABASE_URL || !C.SUPABASE_ANON_KEY;
 let sb = null;
@@ -446,7 +447,7 @@ function activateAds() {
 }
 
 /* ---------- navigation ---------- */
-const NAV = [['', 'Home', 'home'], ['planner', 'Assistant', 'planner'], ['trips', 'Trips', 'trips'], ['map', 'Map', 'map'], ['journal', 'Journal', 'journal'], ['explore-na', 'Namibia', 'map'], ['updates', 'Updates', 'news'], ['explore', 'Explore', 'explore'], ['messages', 'Chats', 'chat'], ['account', 'Account', 'account']];
+const NAV = [['', 'Home', 'home'], ['planner', 'Assistant', 'planner'], ['trips', 'Trips', 'trips'], ['map', 'Map', 'map'], ['journal', 'Journal', 'journal'], ['explore-na', 'Namibia', 'map'], ['ready', 'Ready to Go', 'passport'], ['updates', 'Updates', 'news'], ['explore', 'Explore', 'explore'], ['messages', 'Chats', 'chat'], ['account', 'Account', 'account']];
 const TABS = ['', 'planner', 'updates', 'journal', 'messages', 'account'];
 function renderNav(active) {
   const link = ([r, l, ic]) => `<a href="#/${r}" ${active === r ? 'aria-current="page"' : ''}>${icon(ic)}<span>${l}</span></a>`;
@@ -468,7 +469,7 @@ async function render() {
   if (!S.user && r.name !== 'auth') { location.hash = '#/auth'; return; }
   if (S.user && r.name === 'auth') { location.hash = '#/'; return; }
   renderNav(r.name === 'auth' ? null : r.name);
-  const views = { '': Home, planner: Planner, trips: Trips, map: MapView, journal: Journal, album: Album, explore: Explore, messages: Messages, account: Account, admin: Admin, updates: Updates, 'explore-na': Namibia, auth: Auth };
+  const views = { '': Home, planner: Planner, trips: Trips, map: MapView, journal: Journal, album: Album, explore: Explore, messages: Messages, account: Account, admin: Admin, updates: Updates, 'explore-na': Namibia, ready: (m) => Ready(m, { esc, fmtDate, profile: S.profile }), auth: Auth };
   const view = views[r.name] || Home;
   try { cleanup?.(); } catch { /* ignore */ } cleanup = null;
   main.innerHTML = '<div class="skeleton"><span></span><span></span><span></span></div>';
@@ -608,6 +609,7 @@ async function Home(main) {
   <form class="searchbar reveal" id="hsearch" role="search"><span aria-hidden="true">🔎</span><label class="sr" for="hq">Search a place</label><input id="hq" placeholder="Where to next? Try Etosha, Swakop or Zanzibar" autocomplete="off"><button class="btn small primary">Go</button></form>
   <div class="chips mood reveal" id="moods" aria-label="Moods">${HOME_MOODS.map(([k, l], i) => `<button class="chip" data-mood="${k}" aria-pressed="${i === 0}">${l}</button>`).join('')}</div>
   ${passportNote}
+  <a class="ready-strip reveal" href="#/ready"><span aria-hidden="true">✅</span><span><b>Ready to Go?</b> Your trip score, checklist and Namibia must-knows</span><span aria-hidden="true">→</span></a>
   <section class="section" style="margin-top:6px"><div class="row between"><h2>Picked for you</h2><a href="#/explore-na">All of Namibia →</a></div>
     <div class="rail" id="recs"></div></section>
   <div class="hero">

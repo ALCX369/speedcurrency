@@ -343,3 +343,26 @@ main{min-width:0}
 @media (max-width:860px){.shell{grid-template-columns:minmax(0,1fr)}}
 .section,.hero>*{min-width:0}
 .chips.mood .chip,.home-head .badge{flex-shrink:0;white-space:nowrap}
+
+/* Ready to Go (ready.js) */
+.ready-strip{display:flex;align-items:center;gap:12px;margin:10px 0 4px;padding:14px 16px;border-radius:var(--r-md);background:linear-gradient(90deg,#FFF1EA,var(--surface));border:1px solid #FFD2BF;color:var(--ink);text-decoration:none;font-size:15px}
+.ready-strip span:nth-child(2){flex:1}
+.ready-strip:hover{border-color:var(--accent)}
+.ready-hero{display:flex;align-items:center;gap:22px;flex-wrap:wrap}
+.ring{width:118px;height:118px;flex:none}
+.ring-bg{fill:none;stroke:var(--night-line);stroke-width:10}
+.ring-fg{fill:none;stroke:var(--accent);stroke-width:10;stroke-linecap:round;transform:rotate(-90deg);transform-origin:55px 55px;transition:stroke-dashoffset .6s var(--ease)}
+.ring-txt{fill:#fff;font-family:var(--display);font-weight:800;font-size:22px}
+.pass{margin-top:6px;padding:8px 12px;border-radius:12px;font-size:14px;background:#1C2E25;color:var(--on-dark)}
+.pass.ok{box-shadow:inset 3px 0 0 #3CC48B}.pass.warn{box-shadow:inset 3px 0 0 var(--sun)}.pass.bad{box-shadow:inset 3px 0 0 var(--accent-on-dark)}
+.pass a{color:var(--accent-on-dark)}
+.season{display:flex;gap:12px;align-items:flex-start;margin-top:16px;padding:14px 16px;border-radius:var(--r-md);background:var(--surface);border:1px solid var(--line)}
+.season>span{font-size:26px;line-height:1}
+.checklist{list-style:none;margin:0;padding:0;display:grid;gap:8px}
+.checklist label{display:flex;gap:12px;align-items:flex-start;padding:12px 14px;border:1px solid var(--line);border-radius:var(--r-sm);background:var(--surface);cursor:pointer}
+.checklist input{width:20px;height:20px;margin-top:2px;accent-color:var(--accent);flex:none}
+.checklist input:checked+span{color:var(--muted);text-decoration:line-through;text-decoration-color:var(--accent)}
+.know .card{border-top:3px solid var(--accent)}
+.grid.g2.know{grid-template-columns:1fr}
+@media (min-width:860px){.grid.g2.know{grid-template-columns:1fr 1fr}}
+@media (prefers-reduced-motion:reduce){.ring-fg{transition:none}}
