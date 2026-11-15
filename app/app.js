@@ -227,6 +227,19 @@ const api = {
     const { error } = await sb.rpc('add_comment', { entry: entryId, body });
     if (error) throw new Error(error.message);
   },
+  async editComment(id, body) {
+    if (DEMO) throw new Error('Comments work once you are signed in online.');
+    const { error } = await sb.rpc('edit_comment', { p_id: id, p_body: body });
+    if (error) throw new Error(error.message);
+  },
+  async wiki(q) {
+    const k = 'wiki:' + q; const hit = CACHE.get(k); if (hit) return hit;
+    const u = `https://en.wikipedia.org/w/api.php?action=query&generator=search&gsrsearch=${encodeURIComponent(q)}&gsrlimit=1&prop=pageimages|extracts|info&inprop=url&exintro=1&explaintext=1&exsentences=5&pithumbsize=1280&format=json&origin=*`;
+    const j = await fetch(u, { signal: AbortSignal.timeout(8000) }).then((r) => r.json());
+    const pg = Object.values(j?.query?.pages || {})[0];
+    const out = pg ? { title: pg.title, text: pg.extract || '', img: pg.thumbnail?.source || '', url: pg.fullurl || `https://en.wikipedia.org/wiki/${encodeURIComponent(pg.title)}` } : null;
+    CACHE.set(k, out); return out;
+  },
   async conversations() {
     if (DEMO) return [];
     const { data } = await sb.from('conversations').select('*').order('last_at', { ascending: false });
@@ -582,11 +595,11 @@ async function Home(main) {
     </section>
     <section class="stack">
       ${next ? `<a class="card stack" href="#/trips/${next.id}" style="text-decoration:none;color:inherit">
-          <div class="row between"><span class="eyebrow">Next trip</span>${countdown(next.start_date)}</div><h2>${esc(next.destination)}</h2>
+          <div class="row between"><span class="eyebrow">✈️ Next trip</span>${countdown(next.start_date)}</div><h2>${esc(next.destination)}</h2>
           <span class="muted">${next.start_date ? fmtDate(next.start_date) : 'Dates not set'}${next.end_date ? ' – ' + fmtDate(next.end_date) : ''}</span>
           ${next.reminder?.on ? `<span class="badge ok">Reminder on · ${esc(next.reminder.place || '')}</span>` : ''}
           <span class="small" style="color:var(--accent-dark);font-weight:700">${icon('news', 14)} Latest news for ${esc(next.destination)} →</span></a>`
-        : `<div class="card stack"><span class="eyebrow">Next trip</span><h2>No trip yet</h2><p class="muted" style="margin:0">Ask the planner, then save the plan as a trip.</p><a class="btn small" href="#/trips?new=1">Add a trip</a></div>`}
+        : `<div class="card stack"><span class="eyebrow">✈️ Next trip</span><h2>No trip yet</h2><p class="muted" style="margin:0">Ask the planner, then save the plan as a trip.</p><a class="btn small" href="#/trips?new=1">Add a trip</a></div>`}
       <div class="grid g2">
         <a class="shortcut" href="#/journal?new=1">${icon('journal')}New journal</a>
         <a class="shortcut" href="#/map">${icon('map')}My map</a>
@@ -778,7 +791,7 @@ async function Trips(main, r) {
   if (r.id) return TripDetail(main, r.id);
   const trips = await api.list('trips', { order: 'start_date', asc: true });
   main.innerHTML = `
-  <div class="page-head"><div><span class="eyebrow">Trips</span><h1>Your trips</h1><p>Dates, budget and a reminder that pops up when you arrive.</p></div>
+  <div class="page-head"><div><span class="eyebrow">🧳 Trips</span><h1>Your trips</h1><p>Dates, budget and a reminder that pops up when you arrive.</p></div>
     <button class="btn primary" id="newtrip">${icon('plus', 18)} New trip</button></div>
   ${trips.length ? `<div class="grid g3">${trips.map((t) => `<a class="card stack" href="#/trips/${t.id}" style="text-decoration:none;color:inherit">
       <h2>${esc(t.destination)}</h2><span class="muted">${t.start_date ? fmtDate(t.start_date) : 'Dates not set'}${t.end_date ? ' – ' + fmtDate(t.end_date) : ''}</span>
@@ -900,7 +913,7 @@ async function MapView(main) {
   const [pins, entries] = await Promise.all([api.list('pins'), api.list('journal_entries')]);
   const all = [...pins, ...entries.filter((e) => e.lat != null).map((e) => ({ id: 'j' + e.id, kind: 'visited', name: e.title, lat: e.lat, lng: e.lng, note: e.story, journal: e.id }))];
   main.innerHTML = `
-  <div class="page-head"><div><span class="eyebrow">Map</span><h1>Your places</h1><p>Home, garage, places you visited and places you plan to go. Tap the map to add a pin.</p></div>
+  <div class="page-head"><div><span class="eyebrow">🗺️ Map</span><h1>Your places</h1><p>Home, garage, places you visited and places you plan to go. Tap the map to add a pin.</p></div>
     <div class="row"><span class="badge">${all.filter((p) => p.kind === 'visited').length} visited</span><span class="badge">${all.length} pins</span></div></div>
   <div class="mapwrap">
     <div id="map" role="application" aria-label="Map of your places"></div>
@@ -964,8 +977,8 @@ async function Journal(main, r) {
   const covers = await api.photoUrls(entries.map((e) => e.photos?.[0]).filter(Boolean));
   let ci = 0;
   main.innerHTML = `
-  <div class="page-head"><div><span class="eyebrow">Journal</span><h1>Your travel journal</h1><p>Up to 6 photos, the place, your rating, a 528-character story and the people you met.</p></div>
-    <div class="row wrap"><a class="btn ghost" href="#/album">${icon('album', 18)} Album</a><button class="btn primary" id="newj">${icon('plus', 18)} New entry</button></div></div>
+  <div class="page-head"><div><span class="eyebrow">📔 Journal</span><h1>Your travel journal</h1><p>Up to 6 photos, the place, your rating, a 528-character story and the people you met.</p></div>
+    <div class="row wrap"><button class="btn ghost" id="playj">▶️ Play my journey</button><a class="btn ghost" href="#/album">${icon('album', 18)} Album</a><button class="btn primary" id="newj">${icon('plus', 18)} New entry</button></div></div>
   ${entries.length ? `<div class="grid g2">${entries.map((e) => `<a class="card entry" href="#/journal/${e.id}" style="text-decoration:none;color:inherit">
       <div class="cover" style="${e.photos?.length ? `background-image:url('${esc(covers[ci++])}')` : ''}"></div>
       <div class="stack" style="gap:4px"><h2>${esc(e.title)}</h2><span class="small muted">${esc(e.place_name || '')}${e.visited_on ? ' · ' + fmtDate(e.visited_on) : ''}</span>
@@ -974,6 +987,11 @@ async function Journal(main, r) {
         ${e.people?.length ? `<span class="small muted">Met ${e.people.length} ${e.people.length === 1 ? 'person' : 'people'}</span>` : ''}</div></a>`).join('')}</div>`
     : '<div class="empty">No journal entries yet. Your first trip story starts here.</div>'}`;
   $('#newj').onclick = () => editEntry();
+  const pj = $('#playj'); if (pj) pj.onclick = async () => {
+    const withPh = entries.filter((e) => e.photos?.length).slice(0, 12); if (!withPh.length) { toast('Add photos to your entries to play your journey 📸'); return; }
+    const paths = withPh.flatMap((e) => e.photos.slice(0, 4)); const urls = await api.photoUrls(paths); let k = 0;
+    storyPlayer(withPh.flatMap((e) => e.photos.slice(0, 4).map(() => ({ e, img: urls[k++] }))), S.profile?.display_name || 'My journey');
+  };
   if (r.q.get('new')) editEntry();
 }
 
@@ -998,8 +1016,10 @@ async function JournalEntry(main, id) {
       <div class="card"><h2>People met</h2>${(e.people || []).map((p) => `<div class="person"><span class="avatar">${esc((p.name || '?')[0].toUpperCase())}</span><span style="flex:1"><b>${esc(p.name)}</b><br><span class="small muted">From ${esc(p.from_country || 'unknown')}</span></span>${p.username ? `<span class="badge ok">@${esc(p.username)}</span>` : '<span class="badge">Not on the app</span>'}</div>`).join('') || '<p class="muted">Nobody added.</p>'}</div>
       ${e.lat != null && mine ? `<a class="btn ghost" href="#/map">See on my map</a>` : ''}
       <div class="card stack" id="comments"><h2>Comments (${comments.length})</h2>
-        ${comments.map((c) => `<div class="person"><span class="avatar">${esc(name(people[c.user_id])[0].toUpperCase())}</span><span style="flex:1"><b>${esc(name(people[c.user_id]))}</b><br>${esc(c.body)}<br><span class="small muted">${fmtDate(c.created_at)}</span></span>${c.user_id === S.user.id || mine ? `<button class="btn small ghost" data-cdel="${c.id}" aria-label="Delete comment">✕</button>` : ''}</div>`).join('') || '<p class="muted" style="margin:0">No comments yet.</p>'}
-        ${(e.is_public || mine) ? `<form class="row" id="cform"><label class="sr" for="cbody">Comment</label><input class="input" id="cbody" maxlength="300" placeholder="Say something nice…"><button class="btn dark">Post</button></form>
+        ${comments.map((c) => `<div class="person comment" data-cid="${c.id}"><span class="avatar">${esc(name(people[c.user_id])[0].toUpperCase())}</span><span style="flex:1"><b>${esc(name(people[c.user_id]))}</b><br><span class="cbody">${esc(c.body)}</span><br><span class="small muted">${ago(c.created_at)}${c.edited_at ? ' · edited' : ''}</span></span>
+          <span class="row" style="gap:4px">${c.user_id === S.user.id ? `<button class="btn small ghost" data-cedit="${c.id}" aria-label="Edit comment">✏️</button>` : ''}${c.user_id === S.user.id || mine ? `<button class="btn small ghost" data-cdel="${c.id}" aria-label="Delete comment">🗑️</button>` : ''}</span></div>`).join('') || '<p class="muted" style="margin:0">No comments yet. Be the first! 💬</p>'}
+        ${(e.is_public || mine) ? `<div class="chips emoji-picks" aria-label="Quick emojis">${['😍', '🔥', '👏', '🌍', '🙌', '😂', '🦁', '🏜️'].map((x) => `<button type="button" class="chip" data-emo="${x}">${x}</button>`).join('')}</div>
+        <form class="row" id="cform"><label class="sr" for="cbody">Comment</label><input class="input" id="cbody" maxlength="300" placeholder="Say something nice… ✨"><button class="btn dark">Post</button></form>
         <span class="small muted">${mine || premium() ? 'Comments are free for you.' : 'Commenting uses 1 token.'}</span>` : ''}
       </div>
     </section>
@@ -1011,7 +1031,15 @@ async function JournalEntry(main, id) {
   } else $('#jrep').onclick = () => reportFlow('entry', id, e.user_id);
   const cf = $('#cform');
   if (cf) cf.onsubmit = async (ev) => { ev.preventDefault(); const b = $('#cbody').value.trim(); if (!b) return; try { await api.addComment(id, b); toast('Comment posted'); render(); } catch (err) { toast(err.message); } };
-  $$('[data-cdel]').forEach((b) => b.onclick = async () => { await sb.from('journal_comments').delete().eq('id', b.dataset.cdel); render(); });
+  $$('[data-cdel]').forEach((b) => b.onclick = async () => { if (!confirm('Delete this comment?')) return; await sb.from('journal_comments').delete().eq('id', b.dataset.cdel); render(); });
+  $$('[data-emo]').forEach((b) => b.onclick = () => { const i = $('#cbody'); if (!i) return; i.value = (i.value + ' ' + b.dataset.emo).trim().slice(0, 300); i.focus(); });
+  $$('[data-cedit]').forEach((b) => b.onclick = () => {
+    const row = b.closest('[data-cid]'); const span = $('.cbody', row); const old = span.textContent;
+    span.innerHTML = `<form class="row" style="margin-top:4px"><input class="input" maxlength="300" aria-label="Edit comment"><button class="btn small primary">Save</button><button type="button" class="btn small ghost">Cancel</button></form>`;
+    const f = $('form', span); const inp = $('input', f); inp.value = old; inp.focus();
+    $('button.ghost', f).onclick = () => { span.textContent = old; };
+    f.onsubmit = async (ev) => { ev.preventDefault(); const v = inp.value.trim(); if (!v) return; try { await api.editComment(b.dataset.cedit, v); toast('Comment updated ✅'); render(); } catch (err) { toast(err.message); } };
+  });
 }
 
 /* full-screen photo viewer with swipe/arrow keys */
@@ -1298,7 +1326,7 @@ async function Album(main) {
   const groups = {};
   for (const x of all) (groups[key(x.e)] ||= []).push(x);
   main.innerHTML = `
-  <div class="page-head"><div><span class="eyebrow">Album</span><h1>Your travel album</h1><p>${all.length} photos from ${entries.length} journal entries, grouped by place and year.</p></div>
+  <div class="page-head"><div><span class="eyebrow">🖼️ Album</span><h1>Your travel album</h1><p>${all.length} photos from ${entries.length} journal entries, grouped by place and year.</p></div>
     <div class="row wrap"><button class="btn dark" id="slides" ${all.length ? '' : 'disabled'}>${icon('album', 18)} Slideshow</button><a class="btn primary" href="#/journal?new=1">${icon('plus', 18)} Add photos</a></div></div>
   ${all.length ? Object.entries(groups).map(([g, xs]) => `<section class="section"><h2>${esc(g)}</h2><div class="album">${xs.map((x) => `<button class="ph" data-i="${all.indexOf(x)}" style="background-image:url('${esc(x.url)}')" aria-label="${esc(x.e.title)}"><span>${esc(x.e.title)}</span></button>`).join('')}</div></section>`).join('')
     : '<div class="empty">No photos yet. Add up to 6 per journal entry.</div>'}`;
@@ -1312,17 +1340,68 @@ async function Album(main) {
 async function Explore(main) {
   const feed = await api.feed();
   const people = await api.profilesById(feed.map((e) => e.user_id));
-  const covers = await api.photoUrls(feed.map((e) => e.photos?.[0]).filter(Boolean));
-  let ci = 0;
+  const allPaths = feed.flatMap((e) => (e.photos || []).slice(0, 6));
+  const urls = await api.photoUrls(allPaths);
+  const urlOf = {}; allPaths.forEach((p, i) => { urlOf[p] = urls[i]; });
+  const name = (a) => (a ? (a.display_name || '@' + (a.username || 'traveller')) : 'Traveller');
+  // one story circle per traveller (their latest public entries)
+  const byUser = []; for (const e of feed) { let g = byUser.find((x) => x.uid === e.user_id); if (!g) byUser.push(g = { uid: e.user_id, entries: [] }); g.entries.push(e); }
   main.innerHTML = `
-  <div class="page-head"><div><span class="eyebrow">Explore</span><h1>Travellers’ stories</h1><p>Public journal entries. Comment, or message the traveller.</p></div>
+  <div class="page-head"><div><span class="eyebrow">🌍 Explore</span><h1>Travellers’ journeys</h1><p>Tap a circle to watch someone’s journey like a story. Comment, react or message them.</p></div>
     <a class="btn ghost" href="#/account?tab=tokens">${icon('gift', 18)} Invite friends</a></div>
-  ${feed.length ? `<div class="grid g2">${feed.map((e) => { const a = people[e.user_id]; return `<a class="card entry" href="#/journal/${e.id}" style="text-decoration:none;color:inherit">
-      <div class="cover" style="${e.photos?.length ? `background-image:url('${esc(covers[ci++])}')` : ''}"></div>
-      <div class="stack" style="gap:4px"><span class="small muted">${esc(a?.display_name || '@' + (a?.username || 'traveller'))}${a?.home_country ? ' · ' + esc(a.home_country) : ''}</span><h2>${esc(e.title)}</h2>
-        <span class="small muted">${esc(e.place_name || '')}</span>${e.rating ? `<span style="color:var(--accent)">${'★'.repeat(e.rating)}</span>` : ''}
-        <span class="small">${esc((e.story || '').slice(0, 110))}${(e.story || '').length > 110 ? '…' : ''}</span></div></a>`; }).join('')}</div>`
-    : `<div class="empty">No public stories yet. Make one of yours public from your journal, and share your invite link so friends can join.</div>`}`;
+  ${byUser.length ? `<div class="story-bar" role="list" aria-label="Traveller stories">${byUser.map((g, i) => { const a = people[g.uid]; const cov = urlOf[g.entries.find((e) => e.photos?.length)?.photos?.[0]]; return `<button class="story-ring reveal" style="--i:${i}" data-story="${i}" role="listitem" aria-label="Watch ${esc(name(a))}'s journey">
+      <span class="ring"><span class="face" style="${cov ? `background-image:url('${esc(cov)}')` : ''}">${cov ? '' : esc(name(a)[0].toUpperCase())}</span></span><span class="small">${esc(name(a).split(' ')[0].slice(0, 10))}</span></button>`; }).join('')}</div>` : ''}
+  ${feed.length ? `<div class="journey-feed">${feed.map((e, i) => { const a = people[e.user_id]; const cov = urlOf[e.photos?.[0]]; return `<article class="journey reveal" style="--i:${i % 8}">
+      <header class="row between"><span class="row"><span class="avatar">${esc(name(a)[0].toUpperCase())}</span><span><b>${esc(name(a))}</b><br><span class="small muted">📍 ${esc(e.place_name || 'Somewhere wonderful')}${a?.home_country ? ' · from ' + esc(a.home_country) : ''}</span></span></span><span class="small muted">${ago(e.created_at)}</span></header>
+      <a href="#/journal/${e.id}" class="jphoto" style="${cov ? `background-image:url('${esc(cov)}')` : ''}" aria-label="Open ${esc(e.title)}">${cov ? '' : '<span>📔</span>'}${(e.photos || []).length > 1 ? `<span class="count">📸 ${e.photos.length}</span>` : ''}</a>
+      <div class="stack" style="gap:6px;padding:12px 14px 14px"><div class="row between"><h2 style="font-size:20px">${esc(e.title)}</h2>${e.rating ? `<span class="small" style="color:var(--accent)">${'★'.repeat(e.rating)}</span>` : ''}</div>
+        <p class="small" style="margin:0">${esc((e.story || '').slice(0, 180))}${(e.story || '').length > 180 ? '…' : ''}</p>
+        <div class="row wrap" style="gap:6px"><a class="chip" href="#/journal/${e.id}#comments">💬 Comment</a><button class="chip" data-play="${i}">▶️ Watch</button><a class="chip" href="#/messages?to=${e.user_id}">✉️ Message</a></div></div>
+    </article>`; }).join('')}</div>`
+    : `<div class="empty">✨ No public journeys yet. Make one of yours public from your journal, and share your invite link so friends can join.</div>`}`;
+  const slidesFor = (entries) => entries.flatMap((e) => ((e.photos || []).length ? e.photos.slice(0, 6).map((ph) => ({ e, img: urlOf[ph] })) : [{ e, img: '' }]));
+  $$('[data-story]').forEach((b) => b.onclick = () => { const g = byUser[+b.dataset.story]; storyPlayer(slidesFor(g.entries), name(people[g.uid])); });
+  $$('[data-play]').forEach((b) => b.onclick = () => { const e = feed[+b.dataset.play]; storyPlayer(slidesFor([e]), name(people[e.user_id])); });
+}
+
+/* full-screen story player: progress bars, tap left/right, hold to pause, swipe down to close */
+function storyPlayer(slides, who) {
+  if (!slides.length) return;
+  let i = 0, t = 0, paused = false, timer;
+  const DUR = 5000, STEP = 50;
+  const ov = document.createElement('div'); ov.className = 'story-view'; ov.setAttribute('role', 'dialog'); ov.setAttribute('aria-label', `${who}'s journey`);
+  ov.innerHTML = `<div class="bars">${slides.map(() => '<span><i></i></span>').join('')}</div>
+    <div class="top row between"><span class="row"><span class="avatar">${esc(who[0].toUpperCase())}</span><span><b>${esc(who)}</b><br><span class="small" id="sv-place"></span></span></span><button class="sv-x" aria-label="Close">✕</button></div>
+    <div class="img" id="sv-img"></div>
+    <div class="cap"><h2 id="sv-title"></h2><p id="sv-text"></p><a class="btn small primary" id="sv-open">💬 Open & comment</a></div>
+    <button class="tap left" aria-label="Previous"></button><button class="tap right" aria-label="Next"></button>`;
+  document.body.appendChild(ov); document.body.style.overflow = 'hidden';
+  const bars = $$('.bars i', ov);
+  const close = () => { clearInterval(timer); ov.remove(); document.body.style.overflow = ''; document.removeEventListener('keydown', key); };
+  const show = () => {
+    const sl = slides[i];
+    $('#sv-img', ov).style.backgroundImage = sl.img ? `url('${sl.img.replace(/'/g, '%27')}')` : '';
+    $('#sv-img', ov).classList.toggle('noimg', !sl.img);
+    $('#sv-place', ov).textContent = '📍 ' + (sl.e.place_name || '') + (sl.e.visited_on ? ' · ' + fmtDate(sl.e.visited_on) : '');
+    $('#sv-title', ov).textContent = sl.e.title || '';
+    $('#sv-text', ov).textContent = (sl.e.story || '').slice(0, 220);
+    $('#sv-open', ov).href = `#/journal/${sl.e.id}#comments`;
+    bars.forEach((b, k) => { b.style.width = k < i ? '100%' : '0%'; });
+    t = 0;
+  };
+  const next = () => { if (i < slides.length - 1) { i++; show(); } else close(); };
+  const prev = () => { if (i > 0) { i--; show(); } else { t = 0; } };
+  timer = setInterval(() => { if (paused) return; t += STEP; bars[i].style.width = Math.min(100, (t / DUR) * 100) + '%'; if (t >= DUR) next(); }, STEP);
+  $('.tap.right', ov).onclick = next; $('.tap.left', ov).onclick = prev; $('.sv-x', ov).onclick = close; $('#sv-open', ov).onclick = close;
+  const hold = (v) => () => { paused = v; };
+  ['pointerdown'].forEach((ev) => $('#sv-img', ov).addEventListener(ev, hold(true)));
+  ['pointerup', 'pointerleave'].forEach((ev) => $('#sv-img', ov).addEventListener(ev, hold(false)));
+  let y0 = null;
+  ov.addEventListener('touchstart', (e) => { y0 = e.touches[0].clientY; }, { passive: true });
+  ov.addEventListener('touchend', (e) => { if (y0 != null && e.changedTouches[0].clientY - y0 > 90) close(); y0 = null; });
+  const key = (e) => { if (e.key === 'Escape') close(); if (e.key === 'ArrowRight') next(); if (e.key === 'ArrowLeft') prev(); };
+  document.addEventListener('keydown', key);
+  show(); $('.sv-x', ov).focus();
 }
 
 /* =========================================================
@@ -1340,7 +1419,7 @@ async function Messages(main, r) {
   const conv = convs.find((c) => c.id === active);
   const otherId = conv ? (conv.user_a === S.user.id ? conv.user_b : conv.user_a) : toId;
   main.innerHTML = `
-  <div class="page-head"><div><span class="eyebrow">Chats</span><h1>Messages</h1><p>${premium() ? 'Messaging is free on your plan.' : 'Each message uses 1 token. Free on Premium and Pro.'}</p></div>
+  <div class="page-head"><div><span class="eyebrow">💬 Chats</span><h1>Messages</h1><p>${premium() ? 'Messaging is free on your plan.' : 'Each message uses 1 token. Free on Premium and Pro.'}</p></div>
     <button class="btn dark" id="newchat">${icon('plus', 18)} New chat</button></div>
   <div class="planner">
     <aside class="history" aria-label="Conversations">${convs.length ? convs.map((c) => { const o = c.user_a === S.user.id ? c.user_b : c.user_a; return `<a href="#/messages/${c.id}" ${c.id === active ? 'aria-current="true"' : ''}><b>${esc(name(o))}</b><br><span class="date">${fmtDate(c.last_at)}</span></a>`; }).join('') : '<p class="small muted">No chats yet.</p>'}</aside>
@@ -1581,7 +1660,7 @@ const HOME_AFFAIRS = `<div class="card stack reveal"><h3>${'🛂'} Home Affairs 
 async function Namibia(main, r) {
   const town = r.id ? decodeURIComponent(r.id) : '';
   if (!town) {
-    main.innerHTML = `<div class="page-head reveal"><div><span class="eyebrow">Explore</span><h1>Namibia, region by region</h1><p>Tap a region, then a town: places with contacts, live news, events and offices.</p></div></div>
+    main.innerHTML = `<div class="page-head reveal"><div><span class="eyebrow">🧭 Explore</span><h1>Namibia, region by region</h1><p>Tap a region, then a town: places with contacts, live news, events and offices.</p></div></div>
       <div class="regions">${NA_REGIONS.map(([name, tag, towns, parks], i) => `<details class="card region reveal" style="--i:${i}"><summary><span><b>${esc(name)}</b><br><span class="small muted">${esc(tag)}</span></span><span class="badge">${towns.length} town${towns.length === 1 ? "" : "s"}</span></summary>
         <div class="chips" style="margin-top:10px">${towns.map((t) => `<a class="chip" href="#/explore-na/${encodeURIComponent(t)}">${esc(t)}</a>`).join('')}</div>
         ${parks.length ? `<div class="small muted" style="margin-top:10px">Reserves & highlights</div><div class="chips">${parks.map((pk) => `<a class="chip park" href="#/explore-na/${encodeURIComponent(pk)}">🌿 ${esc(pk)}</a>`).join('')}</div>` : ''}</details>`).join('')}</div>
@@ -1597,6 +1676,7 @@ async function Namibia(main, r) {
         <a class="btn ghost" href="${esc(gmaps(town + ', Namibia'))}" target="_blank" rel="noopener noreferrer">${icon('map', 18)} Google Maps</a></div></div>
     <div class="paper" style="margin-top:14px">
       <section class="stack">
+        <article class="card wiki-story reveal" id="xwiki" aria-live="polite"><div class="skeleton"><span></span><span></span></div></article>
         <div class="card stack reveal"><div class="chips" id="xcat">${Object.entries(EXPLORE_CATS).map(([k, [l]]) => `<button class="chip" data-cat="${k}">${l}</button>`).join('')}</div>
           <div id="xplaces" class="list"></div>
           <span class="small muted">From OpenStreetMap. Tap a place for Google reviews, photos and directions; call or visit the website to reserve.</span></div>
@@ -1652,6 +1732,18 @@ async function Namibia(main, r) {
   $('#xplaces').addEventListener('click', (e) => { const b = e.target.closest('[data-rev]'); if (b && st.list) reviewSheet(st.list[+b.dataset.rev], loadPlaces); });
   $$('#xcat .chip').forEach((b) => b.onclick = () => { st.cat = b.dataset.cat; mark(); loadPlaces(); });
   mark(); loadPlaces(); loadNews('#xnews', 'all', 30, 6); loadNews('#xevents', 'events', 60, 4);
+  (async () => {
+    const box = $('#xwiki'); if (!box) return;
+    try {
+      const w = await api.wiki(`${town.replace(/\s*\(.*\)$/, '')} Namibia`);
+      if (!$('#xwiki')) return;
+      if (!w || !w.text) { box.remove(); return; }
+      if (w.img) { const h = $('.town-hero'); if (h) { h.style.backgroundImage = `linear-gradient(180deg,rgba(21,23,26,.25),rgba(21,23,26,.85)),url('${w.img.replace(/'/g, '%27')}')`; h.classList.add('has-photo'); } }
+      box.innerHTML = `${w.img ? `<div class="wiki-img" style="background-image:url('${esc(w.img)}')" role="img" aria-label="Photo of ${esc(w.title)} from Wikipedia"></div>` : ''}
+        <div class="stack" style="gap:8px;padding:16px"><span class="kicker">📖 The story of ${esc(town)}</span><p style="margin:0;line-height:1.6">${esc(w.text)}</p>
+        <span class="small muted">From <a href="${esc(w.url)}" target="_blank" rel="noopener noreferrer">Wikipedia: ${esc(w.title)}</a> (CC BY-SA). Photo: Wikimedia Commons.</span></div>`;
+    } catch { if ($('#xwiki')) box.remove(); }
+  })();
 }
 
 /* ---------- member reviews & photos (write: Premium/Pro) ---------- */
@@ -1731,7 +1823,7 @@ async function Admin(main, r) {
     </div>
     <details class="card reveal" style="margin:12px 0"><summary><b>Recent activity</b></summary><div class="list" style="margin-top:8px">${(ov.recent || []).slice(0, 15).map((x) => `<div class="row between"><span>${{ signup: '👋', payment: '💳', review: '⭐' }[x.kind] || '•'} ${esc(x.text)}</span><span class="small muted">${ago(x.at)}</span></div>`).join('')}</div></details>` : '';
   const tab = (k, l) => `<a class="btn small ${status === k ? 'dark' : 'ghost'}" href="#/admin?s=${k}">${l}</a>`;
-  main.innerHTML = `<div class="page-head"><div><span class="eyebrow">Admin</span><h1>Your business</h1><p>Money, members, AI use and payments to approve.</p></div><a class="btn ghost small" href="https://console.anthropic.com/settings/billing" target="_blank" rel="noopener">Claude credits ↗</a></div>
+  main.innerHTML = `<div class="page-head"><div><span class="eyebrow">🛡️ Admin</span><h1>Your business</h1><p>Money, members, AI use and payments to approve.</p></div><a class="btn ghost small" href="https://console.anthropic.com/settings/billing" target="_blank" rel="noopener">Claude credits ↗</a></div>
     ${overview}<h2 style="margin:18px 0 10px">EFT payments</h2>
     <div class="row wrap" style="margin-bottom:12px">${tab('pending', 'To check')}${tab('paid', 'Paid')}${tab('rejected', 'Rejected')}${tab('all', 'All')}<button class="btn small ghost" id="csv">Download CSV</button></div>
     <div class="stack">${rows.length ? rows.map((x) => `<div class="card stack" style="padding:16px">

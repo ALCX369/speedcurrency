@@ -1,7 +1,7 @@
 // SpeedCurrency service worker: opens instantly and works on bad connections.
 // App files: show the cached copy right away, refresh it in the background.
 // Data, sign-in, AI and payments always go to the network.
-const CACHE = 'sc-v7';
+const CACHE = 'sc-v8';
 const SHELL = ['./', './index.html', './style.css', './app.js', './config.js', './icon.svg', './manifest.json'];
 self.addEventListener('install', (e) => { e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting())); });
 self.addEventListener('activate', (e) => {
