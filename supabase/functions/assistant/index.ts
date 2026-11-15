@@ -1,26 +1,28 @@
 // SpeedCurrency assistant, streamed live into the app.
 // With ANTHROPIC_API_KEY: Claude (Haiku 5.5 / Sonnet 5.5 on Pro) with live web search.
-// Otherwise with GEMINI_API_KEY: Google Gemini free tier, plus recent Google News headlines as live context.
+// Otherwise with GEMINI_API_KEY: Google Gemini free tier, plus recent news headlines and Wikipedia as live context.
 import { admin, cors, currentUser } from "../_shared/common.ts";
 
 const KEY = Deno.env.get("ANTHROPIC_API_KEY") ?? "";
 const GKEY = Deno.env.get("GEMINI_API_KEY") ?? "";
-const GMODELS = (Deno.env.get("GEMINI_MODEL") ?? "gemini-3.8-flash,gemini-3.5-flash-lite,gemini-2.5-flash").split(",").map((x) => x.trim()).filter(Boolean);
+const GMODELS = (Deno.env.get("GEMINI_MODEL") ?? "gemini-3.5-flash-lite,gemini-2.5-flash,gemini-3.8-flash").split(",").map((x) => x.trim()).filter(Boolean);
 
-// Recent headlines for the question (free Google News RSS) so Gemini answers can cite current links.
+// Recent headlines for the question (free Bing News RSS) so Gemini answers can cite current links.
 async function newsContext(q: string): Promise<{ title: string; url: string; source: string; date: string }[]> {
   const words = q.replace(/[^\p{L}\p{N} ]/gu, " ").split(/\s+/).filter((w) => w.length > 3).slice(0, 7).join(" ");
   if (!words) return [];
   try {
-    const r = await fetch(`https://news.google.com/rss/search?q=${encodeURIComponent(words + " when:60d")}&hl=en-NA&gl=NA&ceid=NA:en`, { headers: { "User-Agent": "Mozilla/5.0 SpeedCurrency/1.0" }, signal: AbortSignal.timeout(6000) });
+    // Bing News RSS answers quickly from our servers (Google News times out there).
+    const r = await fetch(`https://www.bing.com/news/search?q=${encodeURIComponent(words)}&format=rss&cc=NA&setlang=en`, { headers: { "User-Agent": "Mozilla/5.0 SpeedCurrency/1.0" }, signal: AbortSignal.timeout(3500) });
     if (!r.ok) return [];
     const xml = await r.text();
-    const dec = (x: string) => x.replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, "$1").replace(/&amp;/g, "&").replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&lt;/g, "<").replace(/&gt;/g, ">").trim();
+    const dec = (x: string) => x.replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, "$1").replace(/&amp;/g, "&").replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&#(\d+);/g, (_m, n) => String.fromCodePoint(Number(n))).replace(/&lt;/g, "<").replace(/&gt;/g, ">").trim();
     const tag = (it: string, t: string) => dec((it.match(new RegExp(`<${t}[^>]*>([\\s\\S]*?)</${t}>`)) ?? [])[1] ?? "");
     return [...xml.matchAll(/<item>([\s\S]*?)<\/item>/g)].slice(0, 8).map(([, it]) => {
-      const source = tag(it, "source"); let title = tag(it, "title");
-      if (source && title.endsWith(" - " + source)) title = title.slice(0, -(source.length + 3));
-      return { title, url: tag(it, "link"), source, date: tag(it, "pubDate").slice(5, 16) };
+      const link = tag(it, "link"); const real = (link.match(/[?&]url=([^&]+)/) ?? [])[1];
+      const url = real ? decodeURIComponent(real) : link;
+      let source = tag(it, "News:Source"); if (!source) { try { source = new URL(url).hostname.replace(/^www\./, ""); } catch { source = "News"; } }
+      return { title: tag(it, "title"), url, source, date: tag(it, "pubDate").slice(5, 16) };
     }).filter((x) => x.title && x.url.startsWith("https://"));
   } catch { return []; }
 }
@@ -29,10 +31,10 @@ async function wikiContext(q: string): Promise<{ title: string; extract: string;
   try {
     const words = q.replace(/[^\p{L}\p{N} ]/gu, " ").split(/\s+/).filter((w) => w.length > 3).slice(0, 6).join(" ");
     if (!words) return null;
-    const s = await fetch(`https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(words)}&srlimit=1&format=json`, { headers: { "User-Agent": "SpeedCurrency/1.0 (gmega.url@gmail.com)" }, signal: AbortSignal.timeout(5000) }).then((r) => r.json());
+    const s = await fetch(`https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(words)}&srlimit=1&format=json`, { headers: { "User-Agent": "SpeedCurrency/1.0 (gmega.url@gmail.com)" }, signal: AbortSignal.timeout(3000) }).then((r) => r.json());
     const title = s?.query?.search?.[0]?.title;
     if (!title) return null;
-    const p = await fetch(`https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(title)}`, { headers: { "User-Agent": "SpeedCurrency/1.0 (gmega.url@gmail.com)" }, signal: AbortSignal.timeout(5000) }).then((r) => r.json());
+    const p = await fetch(`https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(title)}`, { headers: { "User-Agent": "SpeedCurrency/1.0 (gmega.url@gmail.com)" }, signal: AbortSignal.timeout(3000) }).then((r) => r.json());
     if (!p?.extract) return null;
     return { title, extract: String(p.extract).slice(0, 1400), url: p.content_urls?.desktop?.page ?? `https://en.wikipedia.org/wiki/${encodeURIComponent(title)}` };
   } catch { return null; }
@@ -142,18 +144,25 @@ Rules: search the web for anything current (entry rules, prices, opening times, 
             + "\nWrite warmly and personally, like a friendly local guide, but stay factual."
             + "\nAlways end with an 'Official sources to check' section naming the embassy, immigration, park or tourism office the traveller should confirm with.";
           const contents = [...history, { role: "user", content: text }].map((m) => ({ role: m.role === "assistant" ? "model" : "user", parts: [{ text: m.content }] }));
+          // Try each model; if one is busy (429/500/503), unknown (404/400) or too slow, move on to the next.
           let gr: Response | null = null;
           for (const m of GMODELS) {
-            gr = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${m}:streamGenerateContent?alt=sse`, {
-              method: "POST", headers: { "content-type": "application/json", "x-goog-api-key": GKEY },
-              body: JSON.stringify({ systemInstruction: { parts: [{ text: gsystem }] }, contents, generationConfig: { maxOutputTokens: cfg.maxTokens * 2, temperature: 0.6 } }),
-            });
+            send({ type: "search", query: "Writing your answer…" });
+            // Give each model 15 s to start answering; once it starts, let the full answer stream.
+            const ac = new AbortController(); const timer = setTimeout(() => ac.abort(), 15000);
+            try {
+              gr = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${m}:streamGenerateContent?alt=sse`, {
+                method: "POST", headers: { "content-type": "application/json", "x-goog-api-key": GKEY },
+                body: JSON.stringify({ systemInstruction: { parts: [{ text: gsystem }] }, contents, generationConfig: { maxOutputTokens: cfg.maxTokens * 2, temperature: 0.6 } }),
+                signal: ac.signal,
+              });
+            } catch (_e) { gr = null; continue; } finally { clearTimeout(timer); }
             if (gr.ok) { usedModel = m; break; }
-            if (gr.status !== 404 && gr.status !== 400) break;
+            if (![400, 404, 429, 500, 503].includes(gr.status)) break;
           }
           if (!gr || !gr.ok || !gr.body) {
             const st = gr?.status ?? 0; const err = gr ? await gr.text() : "";
-            return fail(st === 429 ? "The free AI limit for today is used up. Try again later." : st === 403 || st === 401 ? "The Gemini key was refused. Check the GEMINI_API_KEY secret." : `AI error ${st}`, { detail: err.slice(0, 300) });
+            return fail(st === 429 ? "The free AI is very busy or today's free limit is used up. Please try again in a few minutes." : st === 403 || st === 401 ? "The Gemini key was refused. Check the GEMINI_API_KEY secret." : st === 503 || st === 500 || st === 0 ? "The AI is busy right now. Please try again in a minute." : `AI error ${st}`, { detail: err.slice(0, 300) });
           }
           const reader = gr.body.getReader(); const dec = new TextDecoder(); let buf = "";
           while (true) {

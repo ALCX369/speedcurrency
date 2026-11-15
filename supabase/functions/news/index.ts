@@ -1,4 +1,4 @@
-// Updates newspaper: recent news for a place, from Google News RSS (free, no key).
+// Updates newspaper: recent news for a place, from free news feeds (Bing News, Google News, GDELT; no keys).
 // Results are cached in the news_cache table so the same search is fetched at most every 2 hours.
 import { admin, cors, currentUser, json } from "../_shared/common.ts";
 
@@ -19,7 +19,7 @@ const NA_SITES = [
 ];
 const CACHE_MS = 2 * 60 * 60 * 1000;
 const GKEY = Deno.env.get("GEMINI_API_KEY") ?? "";
-const GMODELS = (Deno.env.get("GEMINI_MODEL") ?? "gemini-3.8-flash,gemini-3.5-flash-lite,gemini-2.5-flash").split(",").map((x) => x.trim()).filter(Boolean);
+const GMODELS = (Deno.env.get("GEMINI_MODEL") ?? "gemini-3.5-flash-lite,gemini-2.5-flash,gemini-3.8-flash").split(",").map((x) => x.trim()).filter(Boolean);
 
 // Premium/Pro: a short, friendly AI summary of the headlines (free Gemini), cached with the news.
 async function makeBrief(place: string, items: { title: string; source: string; published: string }[]): Promise<string> {
@@ -43,7 +43,7 @@ async function makeBrief(place: string, items: { title: string; source: string; 
 }
 
 const decode = (s: string) => s.replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, "$1")
-  .replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&amp;/g, "&").trim();
+  .replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&#(\d+);/g, (_m, n) => String.fromCodePoint(Number(n))).replace(/&amp;/g, "&").trim();
 const tag = (xml: string, t: string) => decode((xml.match(new RegExp(`<${t}[^>]*>([\\s\\S]*?)</${t}>`)) ?? [])[1] ?? "");
 
 function parse(xml: string) {
@@ -77,6 +77,7 @@ Deno.serve(async (req) => {
   if (days <= 365) parts.push(`when:${days}d`);
   else parts.push("after:" + new Date(Date.now() - days * 864e5).toISOString().slice(0, 10));
   const q = parts.join(" ");
+  const qBing = parts.filter((x) => !/^(when|after):/.test(x)).join(" ");
   const key = `${country}|${q}`;
 
   const db = admin();
@@ -96,15 +97,50 @@ Deno.serve(async (req) => {
     return { brief: text };
   };
   const { data: cached } = await db.from("news_cache").select("data, fetched_at").eq("key", key).maybeSingle();
-  if (cached && Date.now() - Date.parse(cached.fetched_at) < CACHE_MS) return json({ items: cached.data, fetched_at: cached.fetched_at, cached: true, ...(await withBrief(cached.data, false)) });
+  if (cached && body.diag !== true && Date.now() - Date.parse(cached.fetched_at) < CACHE_MS) return json({ items: cached.data, fetched_at: cached.fetched_at, cached: true, ...(await withBrief(cached.data, false)) });
 
-  const url = `https://news.google.com/rss/search?q=${encodeURIComponent(q)}&hl=en-${country}&gl=${country}&ceid=${country}:en`;
+  // Free sources, tried in order: Bing News RSS (fast from our servers), Google News RSS, GDELT (open news database).
+  const sourcesTried: string[] = [];
+  const attempts: [string, () => Promise<ReturnType<typeof parse>>][] = [
+    ["bing", async () => {
+      const r = await fetch(`https://www.bing.com/news/search?q=${encodeURIComponent(qBing)}&format=rss&cc=${country}&setlang=en&qft=sortbydate%3d%221%22`, { headers: { "User-Agent": "Mozilla/5.0 SpeedCurrency/1.0" }, signal: AbortSignal.timeout(5000) });
+      if (!r.ok) throw new Error(String(r.status));
+      const xml = await r.text();
+      return [...xml.matchAll(/<item>([\s\S]*?)<\/item>/g)].map(([, it]) => {
+        const link = tag(it, "link"); const real = (link.match(/[?&]url=([^&]+)/) ?? [])[1];
+        const href = real ? decodeURIComponent(real) : link;
+        let source = tag(it, "News:Source"); if (!source) { try { source = new URL(href).hostname.replace(/^www\./, ""); } catch { source = "News"; } }
+        return { title: tag(it, "title"), link: href, source, sourceUrl: "", published: new Date(tag(it, "pubDate")).toISOString() };
+      }).filter((x) => x.title && /^https:\/\//.test(x.link) && !Number.isNaN(Date.parse(x.published)));
+    }],
+    ["google", async () => {
+      const r = await fetch(`https://news.google.com/rss/search?q=${encodeURIComponent(q)}&hl=en-${country}&gl=${country}&ceid=${country}:en`, { headers: { "User-Agent": "Mozilla/5.0 SpeedCurrency/1.0" }, signal: AbortSignal.timeout(2500) });
+      if (!r.ok) throw new Error(String(r.status));
+      return parse(await r.text());
+    }],
+    ["gdelt", async () => {
+      const span = days <= 1 ? "1d" : days <= 7 ? "7d" : days <= 31 ? "1m" : days <= 92 ? "3m" : "1y";
+      const r = await fetch(`https://api.gdeltproject.org/api/v2/doc/doc?query=${encodeURIComponent(`"${place}"`)}&mode=artlist&format=json&maxrecords=40&sort=datedesc&timespan=${span}`, { signal: AbortSignal.timeout(7000) });
+      if (!r.ok) throw new Error(String(r.status));
+      const j = JSON.parse((await r.text()) || "{}");
+      return (j.articles ?? []).filter((a: { language?: string }) => !a.language || a.language === "English").map((a: { title: string; url: string; domain: string; seendate: string }) => ({
+        title: a.title, link: a.url, source: a.domain, sourceUrl: "",
+        published: new Date(a.seendate.replace(/^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z$/, "$1-$2-$3T$4:$5:$6Z")).toISOString(),
+      })).filter((x: { link: string }) => /^https:\/\//.test(x.link));
+    }],
+  ];
   let items: ReturnType<typeof parse> = [];
-  try {
-    const r = await fetch(url, { headers: { "User-Agent": "Mozilla/5.0 SpeedCurrency/1.0" }, signal: AbortSignal.timeout(9000) });
-    if (!r.ok) throw new Error(String(r.status));
-    items = parse(await r.text());
-  } catch (_e) {
+  let via = "";
+  for (const [name, run] of attempts) {
+    const t0 = Date.now();
+    try {
+      const got = await run();
+      sourcesTried.push(`${name}:ok:${got.length}:${Date.now() - t0}ms`);
+      if (got.length) { items = got; via = name; break; }
+    } catch (e) { sourcesTried.push(`${name}:fail:${e instanceof Error ? e.message : e}:${Date.now() - t0}ms`); }
+  }
+  if (body.diag === true) return json({ via, sourcesTried, count: items.length });
+  if (!via && !items.length && sourcesTried.every((x) => x.includes(":fail:"))) {
     if (cached) return json({ items: cached.data, fetched_at: cached.fetched_at, cached: true, stale: true });
     return json({ error: "News is not reachable right now. Try again in a minute." }, 502);
   }
