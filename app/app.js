@@ -402,11 +402,15 @@ const CUR = { NA: 'NAD', ZA: 'ZAR', BW: 'BWP', ZM: 'ZMW', ZW: 'USD', AO: 'AOA', 
 const EURO = 'AT BE HR CY EE FI FR DE GR IE IT LV LT LU MT NL PT SK SI ES'.split(' ');
 const homeCurrency = (code) => (EURO.includes(code) ? 'EUR' : CUR[code] || 'USD');
 
+// The app covers Namibia and South Africa (the currency converter stays worldwide).
+const REGION_CODES = ['NA', 'ZA'];
+const REGION_BBOX = '11.5,-35.0,33.0,-16.9'; // lon/lat box around both countries
+
 async function placeSearch(q) {
-  const r = await fetch(`https://photon.komoot.io/api/?q=${encodeURIComponent(q)}&limit=6&lang=en`, { signal: AbortSignal.timeout(8000) });
+  const r = await fetch(`https://photon.komoot.io/api/?q=${encodeURIComponent(q)}&limit=15&lang=en&bbox=${REGION_BBOX}`, { signal: AbortSignal.timeout(8000) });
   if (!r.ok) throw new Error('Place search is busy, try again');
   const j = await r.json();
-  return (j.features || []).map((f) => {
+  return (j.features || []).filter((f) => REGION_CODES.includes(String(f.properties?.countrycode || '').toUpperCase())).slice(0, 6).map((f) => {
     const p = f.properties;
     return { name: p.name || p.street || q, detail: [p.city, p.state, p.country].filter(Boolean).filter((x) => x !== p.name).join(', '), lat: f.geometry.coordinates[1], lng: f.geometry.coordinates[0], kind: p.osm_value };
   });

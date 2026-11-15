@@ -143,6 +143,7 @@ Traveller: ${p?.display_name || "traveller"}; home country (where the account wa
 Lives in: ${p?.residential_address || "not given"}. Preferred currency: ${p?.preferred_currency || "not set"}. Plan: ${tier}.
 ${polish ? "" : await liveRates()}
 Task: ${MODES[mode] ?? MODES.plan}
+Coverage: SpeedCurrency covers travel in Namibia and South Africa. Keep places, plans and recommendations inside these two countries; if asked about another destination, say the app currently covers Namibia and South Africa and give only brief general pointers. Currency questions may involve any currency in the world.
 Rules: search the web for anything current (entry rules, prices, opening times, reviews, agents). Never invent prices, reviews, phone numbers or rules; if you can't confirm something, say so and name the official source. Remind the traveller that many countries require a passport valid for 6 months after arrival. Keep answers practical and skimmable: short intro, then sections with "## " headings (e.g. Documents, Recommended agents, Places & reviews, Costs, Next steps), bullet points with "- ", bold with **. No tables. Do not give legal or financial advice beyond general information.`;
 
         let answer = "";
