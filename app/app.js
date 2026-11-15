@@ -227,6 +227,17 @@ const api = {
     const { error } = await sb.rpc('add_comment', { entry: entryId, body });
     if (error) throw new Error(error.message);
   },
+  async reactions(ids) {
+    if (DEMO || !ids.length) return [];
+    const { data } = await sb.from('journal_reactions').select('entry_id,user_id,emoji').in('entry_id', ids).limit(2000);
+    return data || [];
+  },
+  async react(entryId, emoji, on) {
+    if (DEMO) throw new Error('Reactions work once you are signed in online.');
+    const q = on ? sb.from('journal_reactions').insert({ entry_id: entryId, user_id: S.user.id, emoji })
+      : sb.from('journal_reactions').delete().eq('entry_id', entryId).eq('user_id', S.user.id).eq('emoji', emoji);
+    const { error } = await q; if (error && !/duplicate/.test(error.message)) throw new Error(error.message);
+  },
   async editComment(id, body) {
     if (DEMO) throw new Error('Comments work once you are signed in online.');
     const { error } = await sb.rpc('edit_comment', { p_id: id, p_body: body });
@@ -508,12 +519,12 @@ async function Auth(main) {
   <div class="grid g2" style="align-items:start;margin-top:12px">
     <section class="stack" style="gap:18px">
       <span class="eyebrow">speed.currency</span>
-      <h1>Plan your next move with real, current information.</h1>
-      <p class="muted" style="font-size:18px;margin:0">Ask the Claude-powered assistant where to go and what it costs. It researches the documents your passport needs, recommended agents, places with reviews and prices, and keeps every plan in your history. Journal your trips, pin places on your map and convert money anywhere.</p>
+      <h1>Plan the trip. Keep the story.</h1>
+      <p class="muted" style="font-size:18px;margin:0">Ask about any place. You get the papers your passport needs, rough costs, where to stay and eat, and links to check it yourself. Your plans, trips and travel journal stay together in one place.</p>
       <div class="grid g3">
-        <div class="card"><h3>${icon('doc')} Documents</h3><p class="small muted" style="margin:6px 0 0">Entry rules for your passport, with official links.</p></div>
-        <div class="card"><h3>${icon('agent')} Agents</h3><p class="small muted" style="margin:6px 0 0">Recommended tour operators and offices.</p></div>
-        <div class="card"><h3>${icon('place')} Places</h3><p class="small muted" style="margin:6px 0 0">Stays and food with review summaries.</p></div>
+        <div class="card"><h3>${icon('doc')} Documents</h3><p class="small muted" style="margin:6px 0 0">What your passport needs, with the official page to check.</p></div>
+        <div class="card"><h3>${icon('agent')} Agents</h3><p class="small muted" style="margin:6px 0 0">Tour operators and offices worth calling.</p></div>
+        <div class="card"><h3>${icon('place')} Places</h3><p class="small muted" style="margin:6px 0 0">Where to sleep and eat, and what people say about it.</p></div>
       </div>
       ${DEMO ? '<div class="notice"><b>Demo mode.</b> Data stays on this device until the app is connected to its server.</div>' : ''}
     </section>
@@ -561,6 +572,15 @@ async function Auth(main) {
 /* =========================================================
    HOME
    ========================================================= */
+const HOME_MOODS = [['all', '✨ All'], ['desert', '🏜️ Desert'], ['safari', '🦁 Safari'], ['coast', '🌊 Coast'], ['city', '🏙️ Towns'], ['events', '🎉 Events']];
+const HOME_PICKS = {
+  all: [['Sossusvlei', 'Hardap · red dunes'], ['Etosha National Park', 'Oshikoto · big game'], ['Swakopmund', 'Erongo · coast'], ['Fish River Canyon', '//Karas · hiking'], ['Ruacana Falls', 'Omusati · waterfall'], ['Epupa Falls', 'Kunene · river']],
+  desert: [['Sossusvlei', 'Red dunes & Deadvlei'], ['Kolmanskop', 'Ghost town in the sand'], ['Spitzkoppe', 'Granite peaks'], ['Brandberg', 'Rock art'], ['Twyfelfontein', 'Ancient engravings']],
+  safari: [['Etosha National Park', 'Lions, elephants, rhinos'], ['Bwabwata National Park', 'River wildlife'], ['Waterberg Plateau Park', 'Plateau walks'], ['Nkasa Rupara National Park', 'Wetland safaris'], ['Khaudum National Park', 'Wild & remote']],
+  coast: [['Swakopmund', 'Adventure capital'], ['Walvis Bay', 'Flamingos & dolphins'], ['Lüderitz', 'Colonial harbour town'], ['Cape Cross Seal Reserve', 'Huge seal colony'], ['Henties Bay', 'Fishing & quiet beaches']],
+  city: [['Windhoek', 'Capital city'], ['Ondangwa', 'Northern hub'], ['Oshakati', 'Markets & music'], ['Rundu', 'Okavango river town'], ['Katima Mulilo', 'Zambezi gateway']],
+  events: [['Windhoek', 'Shows & festivals'], ['Swakopmund', 'Beach events'], ['Ondangwa', 'Northern happenings'], ['Oshakati', 'Concerts & expos'], ['Walvis Bay', 'Sports & markets']],
+};
 async function Home(main) {
   const [trips, chats] = await Promise.all([api.list('trips', { order: 'start_date', asc: true }), api.list('planner_chats', { order: 'updated_at' })]);
   const today = new Date().toISOString().slice(0, 10);
@@ -575,44 +595,82 @@ async function Home(main) {
     ? `<a class="notice row" href="#/account" style="text-decoration:none">${icon('passport', 18)}<span>Add your passport country and expiry date so the assistant checks the right rules.</span></a>`
     : months < 0 ? `<div class="notice row">${icon('passport', 18)}<span><b>Your passport has expired.</b> Renew it before you travel.</span></div>`
     : (months < 6 || (tripEnd && (exp - tripEnd) / (30.44 * 864e5) < 6)) ? `<div class="notice row">${icon('passport', 18)}<span><b>Passport expires ${fmtDate(exp)}.</b> Many countries need 6 months' validity after you arrive.</span></div>` : '';
+  const hr = new Date().getHours();
+  const greet = hr < 12 ? 'Good morning' : hr < 18 ? 'Good afternoon' : 'Good evening';
+  const town = (S.profile.residential_address || '').split(',').map((x) => x.trim()).filter(Boolean).slice(-2, -1)[0] || S.profile.home_country || '';
+  const upcoming = trips.filter((t) => t.start_date && t.start_date >= today).slice(0, 4);
   main.innerHTML = `
-  <div class="page-head"><div><span class="eyebrow">${esc(S.profile.home_country || '')}${tier() !== 'free' ? ' · ' + tier().toUpperCase() : ''}</span><h1>${first ? `Hi ${esc(first)}, where to next?` : 'Where to next?'}</h1></div>
-    <div class="row wrap"><a class="badge" href="#/account?tab=tokens" style="text-decoration:none">${icon('token', 14)} ${bal} tokens</a><a class="btn primary" href="#/planner">${icon('planner')} Ask the assistant</a></div></div>
+  <header class="home-head reveal">
+    <div><span class="small muted">📍 ${esc(town || 'Somewhere wonderful')}${tier() !== 'free' ? ` · <b style="color:var(--accent-dark)">${tier() === 'pro' ? 'PRO' : 'PREMIUM'} ✨</b>` : ''}</span>
+      <h1>${greet}${first ? `, ${esc(first)}` : ''} 👋</h1></div>
+    <div class="row"><a class="badge" href="#/account?tab=tokens" style="text-decoration:none">🪙 ${bal}</a><a class="me" href="#/account" aria-label="Your account">${esc((first || 'Y')[0].toUpperCase())}</a></div>
+  </header>
+  <form class="searchbar reveal" id="hsearch" role="search"><span aria-hidden="true">🔎</span><label class="sr" for="hq">Search a place</label><input id="hq" placeholder="Where to next? Try Etosha, Swakop or Zanzibar" autocomplete="off"><button class="btn small primary">Go</button></form>
+  <div class="chips mood reveal" id="moods" aria-label="Moods">${HOME_MOODS.map(([k, l], i) => `<button class="chip" data-mood="${k}" aria-pressed="${i === 0}">${l}</button>`).join('')}</div>
   ${passportNote}
+  <section class="section" style="margin-top:6px"><div class="row between"><h2>Picked for you</h2><a href="#/explore-na">All of Namibia →</a></div>
+    <div class="rail" id="recs"></div></section>
   <div class="hero">
-    <section class="card dark stack" aria-label="Quick convert">
-      <div class="row between"><h2 style="color:var(--on-dark)">Convert</h2><span class="small muted" id="ratedate"></span></div>
+    <section class="card night stack" aria-label="Quick convert">
+      <div class="row between"><h2 style="color:var(--on-dark)">💱 Convert</h2><span class="small" style="color:var(--on-dark-muted)" id="ratedate"></span></div>
       <form class="convert" id="conv">
         <div class="field"><label for="camt" style="color:var(--on-dark-muted)">Amount</label><input class="input" id="camt" inputmode="decimal" value="100"></div>
         <span></span><span></span>
         <div class="field"><label for="cfrom" style="color:var(--on-dark-muted)">From</label><input class="input" id="cfrom" value="USD" maxlength="3" autocapitalize="characters" list="curlist"></div>
-        <button type="button" class="btn small" id="cswap" style="border-color:#3A3F45;color:var(--on-dark);margin-bottom:5px" aria-label="Swap currencies">⇄</button>
+        <button type="button" class="btn small" id="cswap" style="border-color:#2C4A3E;color:var(--on-dark);margin-bottom:5px" aria-label="Swap currencies">⇄</button>
         <div class="field"><label for="cto" style="color:var(--on-dark-muted)">To</label><input class="input" id="cto" value="${esc(homeCur === 'USD' ? 'EUR' : homeCur)}" maxlength="3" autocapitalize="characters" list="curlist"></div>
         <datalist id="curlist"></datalist>
       </form>
       <div class="big" id="cout" aria-live="polite">–</div>
-      <span class="small muted" id="crate"></span>
+      <span class="small" style="color:var(--on-dark-muted)" id="crate"></span>
     </section>
     <section class="stack">
       ${next ? `<a class="card stack" href="#/trips/${next.id}" style="text-decoration:none;color:inherit">
           <div class="row between"><span class="eyebrow">✈️ Next trip</span>${countdown(next.start_date)}</div><h2>${esc(next.destination)}</h2>
-          <span class="muted">${next.start_date ? fmtDate(next.start_date) : 'Dates not set'}${next.end_date ? ' – ' + fmtDate(next.end_date) : ''}</span>
+          <span class="muted">${next.start_date ? fmtDate(next.start_date) : 'No dates yet'}${next.end_date ? ' – ' + fmtDate(next.end_date) : ''}</span>
           ${next.reminder?.on ? `<span class="badge ok">Reminder on · ${esc(next.reminder.place || '')}</span>` : ''}
-          <span class="small" style="color:var(--accent-dark);font-weight:700">${icon('news', 14)} Latest news for ${esc(next.destination)} →</span></a>`
-        : `<div class="card stack"><span class="eyebrow">✈️ Next trip</span><h2>No trip yet</h2><p class="muted" style="margin:0">Ask the planner, then save the plan as a trip.</p><a class="btn small" href="#/trips?new=1">Add a trip</a></div>`}
+          <span class="small" style="color:var(--accent-dark);font-weight:700">📰 What's happening in ${esc(next.destination)} →</span></a>`
+        : `<div class="card stack"><span class="eyebrow">✈️ Next trip</span><h2>Nothing booked yet</h2><p class="muted" style="margin:0">Ask the assistant for ideas, then save the one you like.</p><a class="btn small" href="#/trips?new=1">Add a trip</a></div>`}
+      ${upcoming.length ? `<div class="date-tiles" aria-label="Upcoming trips">${upcoming.map((t) => { const d = new Date(t.start_date + 'T00:00:00'); return `<a class="date-tile" href="#/trips/${t.id}"><b>${d.getDate()}</b><span>${d.toLocaleDateString(undefined, { month: 'short' })}</span><small>${esc(t.destination.split(',')[0].slice(0, 12))}</small></a>`; }).join('')}</div>` : ''}
       <div class="grid g2">
-        <a class="shortcut" href="#/journal?new=1">${icon('journal')}New journal</a>
-        <a class="shortcut" href="#/map">${icon('map')}My map</a>
-        <a class="shortcut" href="#/explore-na">${icon('map')}Explore Namibia</a>
-        <a class="shortcut" href="#/updates">${icon('news')}Updates</a>
+        <a class="shortcut" href="#/journal?new=1">📔 New journal</a>
+        <a class="shortcut" href="#/map">🗺️ My map</a>
+        <a class="shortcut" href="#/explore">🧭 Journeys</a>
+        <a class="shortcut" href="#/updates">📰 Updates</a>
       </div>
     </section>
   </div>
+  <section class="section" id="buddies" hidden><div class="row between"><h2>Your travel buddies</h2><a href="#/messages">Chats →</a></div><div class="buddies" id="buddylist"></div></section>
+  ${tier() === 'free' ? `<a class="promo reveal" href="#/account?tab=plans"><span class="st s1">🦁</span><span class="st s2">✈️</span><span class="st s3">🏜️</span><span class="st s4">📸</span>
+      <b>Make every trip unforgettable</b><span>Live web answers, place reviews with photos and a quick news brief for every town. From N$${C.PRICE_MONTHLY} a month.</span><span class="btn small dark" style="justify-self:start">See Premium ✨</span></a>` : ''}
   <section class="section"><div class="row between"><h2>Recent plans</h2><a href="#/planner">All plans</a></div>
-    ${chats.length ? `<div class="card list">${chats.slice(0, 4).map((c) => `<a href="#/planner/${c.id}" class="row between" style="text-decoration:none;color:inherit"><span><b>${esc(c.title)}</b><br><span class="small muted">${fmtDate(c.updated_at)}</span></span>${icon('send', 18)}</a>`).join('')}</div>`
-      : `<div class="empty">Your planner history appears here. <a href="#/planner">Start your first plan</a>.</div>`}
+    ${chats.length ? `<div class="card list">${chats.slice(0, 4).map((c) => `<a href="#/planner/${c.id}" class="row between" style="text-decoration:none;color:inherit"><span><b>${esc(c.title)}</b><br><span class="small muted">${ago(c.updated_at)}</span></span>${icon('send', 18)}</a>`).join('')}</div>`
+      : `<div class="empty">Your plans will show up here. <a href="#/planner">Ask your first question</a> 💬</div>`}
   </section>
   <section class="section">${adBlock()}</section>`;
+
+  // search, moods, recommended photo cards (Wikipedia photos), travel buddies
+  $('#hsearch').onsubmit = (e) => { e.preventDefault(); const q = $('#hq').value.trim(); if (q.length < 2) return; const known = NA_REGIONS.some(([, , t, p]) => t.includes(q) || p.includes(q)); location.hash = known ? `#/explore-na/${encodeURIComponent(q)}` : `#/updates?place=${encodeURIComponent(q)}`; };
+  const recs = async (mood) => {
+    const box = $('#recs'); if (!box) return;
+    const list = HOME_PICKS[mood] || HOME_PICKS.all;
+    box.innerHTML = list.map(([name, sub], i) => `<a class="rec reveal" style="--i:${i}" href="${mood === 'events' ? `#/updates?place=${encodeURIComponent(name)}` : `#/explore-na/${encodeURIComponent(name)}`}" data-rec="${esc(name)}">
+      <span class="ph"></span><span class="meta"><b>${esc(name)}</b><small>${esc(sub)}</small></span><span class="plus" aria-hidden="true">＋</span></a>`).join('');
+    list.forEach(async ([name]) => {
+      try { const w = await api.wiki(name.replace(/ \(.*\)$/, '') + ' Namibia'); const el = box.querySelector(`[data-rec="${CSS.escape(name)}"] .ph`); if (el && w?.img) el.style.backgroundImage = `url('${w.img.replace(/'/g, '%27')}')`; } catch { /* keep plain */ }
+    });
+  };
+  $$('[data-mood]').forEach((b) => b.onclick = () => { $$('[data-mood]').forEach((x) => x.setAttribute('aria-pressed', String(x === b))); recs(b.dataset.mood); });
+  recs('all');
+  (async () => {
+    try {
+      const convs = await api.conversations(); if (!convs.length) return;
+      const ids = [...new Set(convs.map((c) => (c.user_a === S.user.id ? c.user_b : c.user_a)))].slice(0, 8);
+      const ppl = await api.profilesById(ids); const box = $('#buddylist'); if (!box) return;
+      box.innerHTML = ids.map((id) => { const p = ppl[id]; const n = p?.display_name || '@' + (p?.username || 'traveller'); const c = convs.find((x) => [x.user_a, x.user_b].includes(id)); return `<a class="buddy" href="#/messages/${c.id}"><span class="av">${esc(n[0].toUpperCase())}</span><span class="small">${esc(n.split(' ')[0].slice(0, 10))}</span></a>`; }).join('') + `<a class="buddy" href="#/explore"><span class="av find">🔎</span><span class="small">Find more</span></a>`;
+      $('#buddies').hidden = false;
+    } catch { /* optional */ }
+  })();
 
   const run = async () => {
     const amt = parseFloat($('#camt').value.replace(/[\s,]/g, '')) || 0;
@@ -977,7 +1035,7 @@ async function Journal(main, r) {
   const covers = await api.photoUrls(entries.map((e) => e.photos?.[0]).filter(Boolean));
   let ci = 0;
   main.innerHTML = `
-  <div class="page-head"><div><span class="eyebrow">📔 Journal</span><h1>Your travel journal</h1><p>Up to 6 photos, the place, your rating, a 528-character story and the people you met.</p></div>
+  <div class="page-head"><div><span class="eyebrow">📔 Journal</span><h1>Your travel journal</h1><p>Six photos, the place, a rating, a short story and the people you met along the way.</p></div>
     <div class="row wrap"><button class="btn ghost" id="playj">▶️ Play my journey</button><a class="btn ghost" href="#/album">${icon('album', 18)} Album</a><button class="btn primary" id="newj">${icon('plus', 18)} New entry</button></div></div>
   ${entries.length ? `<div class="grid g2">${entries.map((e) => `<a class="card entry" href="#/journal/${e.id}" style="text-decoration:none;color:inherit">
       <div class="cover" style="${e.photos?.length ? `background-image:url('${esc(covers[ci++])}')` : ''}"></div>
@@ -1347,7 +1405,7 @@ async function Explore(main) {
   // one story circle per traveller (their latest public entries)
   const byUser = []; for (const e of feed) { let g = byUser.find((x) => x.uid === e.user_id); if (!g) byUser.push(g = { uid: e.user_id, entries: [] }); g.entries.push(e); }
   main.innerHTML = `
-  <div class="page-head"><div><span class="eyebrow">🌍 Explore</span><h1>Travellers’ journeys</h1><p>Tap a circle to watch someone’s journey like a story. Comment, react or message them.</p></div>
+  <div class="page-head"><div><span class="eyebrow">🌍 Explore</span><h1>Travellers’ journeys</h1><p>Tap a circle to watch someone’s trip. Leave a reaction, a comment, or say hi.</p></div>
     <a class="btn ghost" href="#/account?tab=tokens">${icon('gift', 18)} Invite friends</a></div>
   ${byUser.length ? `<div class="story-bar" role="list" aria-label="Traveller stories">${byUser.map((g, i) => { const a = people[g.uid]; const cov = urlOf[g.entries.find((e) => e.photos?.length)?.photos?.[0]]; return `<button class="story-ring reveal" style="--i:${i}" data-story="${i}" role="listitem" aria-label="Watch ${esc(name(a))}'s journey">
       <span class="ring"><span class="face" style="${cov ? `background-image:url('${esc(cov)}')` : ''}">${cov ? '' : esc(name(a)[0].toUpperCase())}</span></span><span class="small">${esc(name(a).split(' ')[0].slice(0, 10))}</span></button>`; }).join('')}</div>` : ''}
@@ -1356,12 +1414,30 @@ async function Explore(main) {
       <a href="#/journal/${e.id}" class="jphoto" style="${cov ? `background-image:url('${esc(cov)}')` : ''}" aria-label="Open ${esc(e.title)}">${cov ? '' : '<span>📔</span>'}${(e.photos || []).length > 1 ? `<span class="count">📸 ${e.photos.length}</span>` : ''}</a>
       <div class="stack" style="gap:6px;padding:12px 14px 14px"><div class="row between"><h2 style="font-size:20px">${esc(e.title)}</h2>${e.rating ? `<span class="small" style="color:var(--accent)">${'★'.repeat(e.rating)}</span>` : ''}</div>
         <p class="small" style="margin:0">${esc((e.story || '').slice(0, 180))}${(e.story || '').length > 180 ? '…' : ''}</p>
+        <div class="reacts" data-entry="${e.id}"></div>
         <div class="row wrap" style="gap:6px"><a class="chip" href="#/journal/${e.id}#comments">💬 Comment</a><button class="chip" data-play="${i}">▶️ Watch</button><a class="chip" href="#/messages?to=${e.user_id}">✉️ Message</a></div></div>
     </article>`; }).join('')}</div>`
     : `<div class="empty">✨ No public journeys yet. Make one of yours public from your journal, and share your invite link so friends can join.</div>`}`;
   const slidesFor = (entries) => entries.flatMap((e) => ((e.photos || []).length ? e.photos.slice(0, 6).map((ph) => ({ e, img: urlOf[ph] })) : [{ e, img: '' }]));
   $$('[data-story]').forEach((b) => b.onclick = () => { const g = byUser[+b.dataset.story]; storyPlayer(slidesFor(g.entries), name(people[g.uid])); });
   $$('[data-play]').forEach((b) => b.onclick = () => { const e = feed[+b.dataset.play]; storyPlayer(slidesFor([e]), name(people[e.user_id])); });
+  // Venmo-style emoji reactions under every journey
+  const REACTS = ['❤️', '🔥', '😍', '👏', '🌍', '😂'];
+  const all = await api.reactions(feed.map((e) => e.id)).catch(() => []);
+  const paint = (box) => {
+    const id = box.dataset.entry; const mine = new Set(all.filter((r) => r.entry_id === id && r.user_id === S.user.id).map((r) => r.emoji));
+    box.innerHTML = REACTS.map((em) => { const n = all.filter((r) => r.entry_id === id && r.emoji === em).length; return `<button class="react ${mine.has(em) ? 'on' : ''}" data-em="${em}" aria-pressed="${mine.has(em)}" aria-label="React ${em}${n ? `, ${n}` : ''}">${em}${n ? `<small>${n}</small>` : ''}</button>`; }).join('');
+  };
+  $$('.reacts').forEach((box) => {
+    paint(box);
+    box.addEventListener('click', async (ev) => {
+      const b = ev.target.closest('[data-em]'); if (!b) return;
+      const em = b.dataset.em, id = box.dataset.entry, on = !b.classList.contains('on');
+      if (on) all.push({ entry_id: id, user_id: S.user.id, emoji: em }); else { const k = all.findIndex((r) => r.entry_id === id && r.user_id === S.user.id && r.emoji === em); if (k >= 0) all.splice(k, 1); }
+      paint(box); if (on) { const nb = box.querySelector(`[data-em="${em}"]`); nb?.classList.add('pop'); }
+      try { await api.react(id, em, on); } catch (err) { toast(err.message); }
+    });
+  });
 }
 
 /* full-screen story player: progress bars, tap left/right, hold to pause, swipe down to close */
@@ -1660,7 +1736,7 @@ const HOME_AFFAIRS = `<div class="card stack reveal"><h3>${'🛂'} Home Affairs 
 async function Namibia(main, r) {
   const town = r.id ? decodeURIComponent(r.id) : '';
   if (!town) {
-    main.innerHTML = `<div class="page-head reveal"><div><span class="eyebrow">🧭 Explore</span><h1>Namibia, region by region</h1><p>Tap a region, then a town: places with contacts, live news, events and offices.</p></div></div>
+    main.innerHTML = `<div class="page-head reveal"><div><span class="eyebrow">🧭 Explore</span><h1>Namibia, region by region</h1><p>Pick a region, then a town. You’ll find places to eat and stay, phone numbers, local news and what’s on.</p></div></div>
       <div class="regions">${NA_REGIONS.map(([name, tag, towns, parks], i) => `<details class="card region reveal" style="--i:${i}"><summary><span><b>${esc(name)}</b><br><span class="small muted">${esc(tag)}</span></span><span class="badge">${towns.length} town${towns.length === 1 ? "" : "s"}</span></summary>
         <div class="chips" style="margin-top:10px">${towns.map((t) => `<a class="chip" href="#/explore-na/${encodeURIComponent(t)}">${esc(t)}</a>`).join('')}</div>
         ${parks.length ? `<div class="small muted" style="margin-top:10px">Reserves & highlights</div><div class="chips">${parks.map((pk) => `<a class="chip park" href="#/explore-na/${encodeURIComponent(pk)}">🌿 ${esc(pk)}</a>`).join('')}</div>` : ''}</details>`).join('')}</div>

@@ -285,3 +285,61 @@ a.chip{text-decoration:none;color:var(--ink)}
 .wiki-img{aspect-ratio:16/9;background:#ECEAE4 center/cover}
 .town-hero.has-photo{background-size:cover;background-position:center;min-height:240px;align-content:end}
 @media (prefers-reduced-motion:reduce){.story-view{animation:none}}
+
+/* =========================================================
+   "Namib night" look — photo-first, warm cream days, deep green nights, sunset orange
+   ========================================================= */
+:root{--night:#0F1D18;--night2:#17291F;--night-line:#24392F;--sand:#F6EFE6;--sun:#FFC94D}
+.card.night{background:radial-gradient(120% 140% at 0% 0%,#1E3A2D 0%,var(--night) 55%,#0A1410 100%);color:var(--on-dark);border:0}
+.card.night .input{background:#13241C;border-color:var(--night-line);color:var(--on-dark)}
+.card.night .big{color:#fff}
+.home-head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:14px}
+.home-head h1{font-size:clamp(28px,5vw,40px)}
+.me{display:grid;place-items:center;width:42px;height:42px;border-radius:50%;background:var(--night);color:#fff;font-weight:800;text-decoration:none;box-shadow:0 0 0 3px var(--bg),0 0 0 5px var(--accent)}
+.searchbar{display:flex;align-items:center;gap:10px;background:var(--surface);border:1px solid var(--line);border-radius:999px;padding:6px 6px 6px 18px;box-shadow:0 8px 24px rgba(21,23,26,.06);margin-bottom:12px}
+.searchbar input{flex:1;border:0;background:none;font-size:16px;min-width:0;padding:8px 0}
+.searchbar input:focus{outline:none}
+.searchbar:focus-within{box-shadow:0 0 0 3px var(--accent)}
+.chips.mood{flex-wrap:nowrap;overflow-x:auto;padding-bottom:4px;margin-bottom:8px}
+.chips.mood::-webkit-scrollbar{display:none}
+.chip[aria-pressed=true]{background:var(--ink);color:#fff;border-color:var(--ink)}
+.rail{display:flex;gap:14px;overflow-x:auto;scroll-snap-type:x mandatory;padding:6px 2px 14px}
+.rail::-webkit-scrollbar{display:none}
+.rec{position:relative;flex:0 0 200px;height:260px;border-radius:28px;overflow:hidden;scroll-snap-align:start;color:#fff;text-decoration:none;background:var(--night2);box-shadow:0 12px 28px rgba(21,23,26,.14)}
+.rec .ph{position:absolute;inset:0;background:linear-gradient(135deg,var(--night2),#3A2A1C) center/cover;transition:transform .6s var(--ease)}
+.rec:hover .ph{transform:scale(1.06)}
+.rec::after{content:"";position:absolute;inset:0;background:linear-gradient(180deg,transparent 45%,rgba(10,20,16,.88))}
+.rec .meta{position:absolute;left:14px;right:52px;bottom:14px;z-index:1;display:grid;gap:2px}
+.rec .meta b{font-family:var(--display);font-size:18px;line-height:1.15}
+.rec .meta small{opacity:.85}
+.rec .plus{position:absolute;right:12px;bottom:14px;z-index:1;width:34px;height:34px;border-radius:12px;background:var(--accent);color:var(--ink);display:grid;place-items:center;font-weight:800}
+.date-tiles{display:flex;gap:10px;overflow-x:auto}
+.date-tile{flex:0 0 84px;display:grid;justify-items:center;gap:0;padding:12px 6px;border-radius:20px;background:var(--night);color:#fff;text-decoration:none}
+.date-tile b{font-family:var(--display);font-size:30px;line-height:1}
+.date-tile span{font-size:12px;text-transform:uppercase;letter-spacing:.08em;color:var(--sun)}
+.date-tile small{font-size:11px;opacity:.8;text-align:center}
+.shortcut{font-weight:700}
+.buddies{display:flex;gap:16px;overflow-x:auto;padding:6px 2px}
+.buddy{display:grid;justify-items:center;gap:6px;text-decoration:none;color:var(--ink)}
+.buddy .av{display:grid;place-items:center;width:62px;height:62px;border-radius:50%;background:linear-gradient(135deg,#1E3A2D,#2E5A45);color:#fff;font-weight:800;font-size:22px}
+.buddy .av.find{background:#E4F0FF;font-size:24px}
+.promo{position:relative;display:grid;gap:6px;margin-top:18px;padding:22px 22px 20px;border-radius:28px;background:var(--sun);color:var(--ink);text-decoration:none;overflow:hidden}
+.promo b{font-family:var(--display);font-size:22px;max-width:70%}
+.promo>span:not(.st){max-width:72%}
+.promo .st{position:absolute;font-size:30px;filter:drop-shadow(0 4px 6px rgba(0,0,0,.18));animation:float 4s ease-in-out infinite}
+.promo .s1{right:22px;top:14px}.promo .s2{right:88px;top:40px;animation-delay:.6s}.promo .s3{right:30px;bottom:18px;animation-delay:1.2s}.promo .s4{right:96px;bottom:30px;animation-delay:1.8s;font-size:24px}
+@keyframes float{50%{transform:translateY(-6px) rotate(-6deg)}}
+.reacts{display:flex;gap:6px;flex-wrap:wrap}
+.react{display:inline-flex;align-items:center;gap:4px;border:1px solid var(--line);background:var(--surface);border-radius:999px;padding:4px 10px;font-size:16px;cursor:pointer;transition:transform .2s var(--spring)}
+.react small{font-size:12px;font-weight:700;color:var(--muted2)}
+.react.on{background:#FFE9DF;border-color:var(--accent)}
+.react.pop{animation:pop .35s var(--spring)}
+.town-hero{background:radial-gradient(120% 140% at 0% 0%,#1E3A2D 0%,var(--night) 60%,#0A1410 100%)}
+.tabbar{background:var(--night)!important}
+.story-ring .face{background-color:var(--night2)}
+@media (prefers-reduced-motion:reduce){.promo .st,.react.pop{animation:none}.rec .ph{transition:none}}
+/* keep wide sliders from stretching the page on phones */
+main{min-width:0}
+@media (max-width:860px){.shell{grid-template-columns:minmax(0,1fr)}}
+.section,.hero>*{min-width:0}
+.chips.mood .chip,.home-head .badge{flex-shrink:0;white-space:nowrap}
