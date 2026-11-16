@@ -153,13 +153,19 @@ export async function mountExploreMap(root, deps) {
       if (box) box.innerHTML = all.length ? all.map((u) => `<span style="background-image:url('${esc(u)}')"></span>`).join('') : '<p class="small muted" style="margin:0">No photos yet. Visit, then add yours in a review or your journal.</p>';
       // 2) people: public memories within 600 m or naming the place, and member reviews
       const near = feed.filter((e) => (e.lat != null && km(p, e) < 0.6) || (e.place_name || '').toLowerCase().includes(p.name.toLowerCase()));
-      const revPeople = await api.profilesById(reviews.map((r) => r.user_id)).catch(() => ({}));
+      // public Google Maps reviews travellers imported: same name, or within 80 m
+      const lc = p.name.toLowerCase();
+      const gNear = (await (deps.googleNear?.(p) || Promise.resolve([])).catch(() => []))
+        .filter((g) => (g.lat != null && km(p, g) < 0.08) || g.place_name.toLowerCase().includes(lc) || lc.includes(g.place_name.toLowerCase()));
+      const revPeople = await api.profilesById([...reviews, ...gNear].map((r) => r.user_id)).catch(() => ({}));
       const pp = pnl.querySelector('#pwppl'); if (!pp) return;
       const rows = [
         ...near.map((e) => { const a = people[e.user_id]; const ph = (e.photos || []).map((x) => urlOf[x]).filter(Boolean).slice(0, 3);
           return `<a class="pw-person" data-close href="#/journal/${esc(e.id)}"><span class="avatar">${esc(name(a)[0].toUpperCase())}</span><span class="pw-who"><b>${esc(name(a))}</b><small>${esc(e.title)}</small></span>${ph.map((u) => `<i style="background-image:url('${esc(u)}')"></i>`).join('')}</a>`; }),
         ...reviews.map((r) => { const a = revPeople[r.user_id];
           return `<div class="pw-person"><span class="avatar">${esc(name(a)[0].toUpperCase())}</span><span class="pw-who"><b>${esc(name(a))} <span style="color:var(--accent)">${'★'.repeat(r.rating)}</span></b><small>${esc(r.body.slice(0, 90))}</small></span>${r.photo_path ? `<i style="background-image:url('${esc(api.reviewPhoto(r.photo_path))}')"></i>` : ''}</div>`; }),
+        ...gNear.map((g) => { const a = revPeople[g.user_id];
+          return `<div class="pw-person"><span class="avatar">${esc(name(a)[0].toUpperCase())}</span><span class="pw-who"><b>${esc(name(a))} ${g.rating ? `<span style="color:var(--accent)">${'★'.repeat(g.rating)}</span>` : ''}</b><small>${esc((g.body || 'Reviewed on Google Maps').slice(0, 90))}</small></span><span class="badge">Google</span></div>`; }),
       ];
       pp.innerHTML = rows.length ? rows.join('') : `<p class="small muted" style="margin:0">Nobody has shared this place yet. Be the first: add it to a public journal memory.</p>`;
     });
