@@ -12,7 +12,7 @@ const HOT = [ // last summer, Dec 2025 - Feb 2026
   { t: 'Plettenberg Bay', cc: 'ZA', why: 'Garden Route seaside town that books out first, with Knysna and Hermanus.', src: 'getaway' },
   { t: 'Stellenbosch', cc: 'ZA', why: 'Winelands: Stellenbosch and Franschhoek fill early every festive season.', src: 'getaway' },
   { t: 'Swakopmund', cc: 'NA', why: 'Namibia’s December coast: cool sea air when the interior is hot.', src: '' },
-  { t: 'Sossusvlei', cc: 'NA', why: 'The red dunes stay Namibia’s signature trip for visitors.', src: '' },
+  { t: 'Sossusvlei', cc: 'NA', why: 'Big Daddy dune and Deadvlei: most visitors to Namibia come for these red dunes. Go at sunrise, before the heat.', src: '' },
 ];
 const NEXT = [ // next summer, Dec 2026 - Feb 2027
   { t: 'Gqeberha', cc: 'ZA', why: 'Port Elizabeth: beaches, Boardwalk and Donkin Reserve, plus Addo elephants 1 hour away. South End heritage precinct is being upgraded.', tip: 'Drive to Addo on the N2 via Colchester, not the R335.', src: 'nomad' },
@@ -49,8 +49,10 @@ const SRC = {
   canada: ['Canada travel advice: South Africa', 'https://travel.gc.ca/destinations/south-africa'],
 };
 
-export function Trends(main, deps) {
+export async function Trends(main, deps) {
   const { esc } = deps;
+  const { here } = await import('./here.js'); const cc = here().cc;
+  if (cc) for (const L of [HOT, NEXT]) L.sort((a, b) => (b.cc === cc) - (a.cc === cc)); // your country first
   const src = (k) => (SRC[k] ? `<a class="tr-src" href="${esc(SRC[k][1])}" target="_blank" rel="noopener noreferrer">Source: ${esc(SRC[k][0])}</a>` : '<span class="tr-src">Local favourite</span>');
   const card = (x, i, list) => `<article class="tr-card"><span class="eyebrow">${x.cc === 'NA' ? '🇳🇦 Namibia' : '🇿🇦 South Africa'}</span><h3>${esc(x.t)}</h3><p>${esc(x.why)}</p>${x.tip ? `<p class="tr-tip">💡 ${esc(x.tip)}</p>` : ''}
       <div class="row wrap tr-btns"><button type="button" class="chip" data-list="${list}" data-i="${i}">📖 Town guide</button><a class="chip" href="${esc(yt(x.t + ' travel vlog'))}" target="_blank" rel="noopener noreferrer">▶ Watch</a></div>${src(x.src)}</article>`;

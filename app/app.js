@@ -3,6 +3,7 @@
 // Backend: Supabase (auth, database, photo storage, server functions). Without settings it runs in demo mode.
 import { attachCurrencyPicker, codeOf } from './currency-picker.js';
 import { newsCover } from './news-cover.js';
+import { here, locate, refreshQuietly } from './here.js';
 const C = window.SC_CONFIG || {};
 const DEMO = !C.SUPABASE_URL || !C.SUPABASE_ANON_KEY;
 let sb = null;
@@ -90,7 +91,7 @@ const api = {
   },
   async resetPassword(email) {
     if (DEMO) throw new Error('Not available in demo mode');
-    const { error } = await sb.auth.resetPasswordForEmail(email, { redirectTo: location.origin + location.pathname + '#/account' });
+    const { error } = await sb.auth.resetPasswordForEmail(email, { redirectTo: location.origin + location.pathname + '#/account?tab=settings' });
     if (error) throw error;
   },
   async signOut(scope = 'local') { if (DEMO) { const d = DS.load(); delete d.user; DS.save(d); return; } const { error } = await sb.auth.signOut({ scope }); if (error) throw error; },
@@ -437,10 +438,18 @@ let adsenseLoaded = false;
 function adBlock(where = 'main') {
   if (premium()) return '';
   const google = C.ADSENSE_SLOT ? `<ins class="adsbygoogle" style="display:block;min-height:90px" data-ad-client="${esc(C.ADSENSE_CLIENT)}" data-ad-slot="${esc(C.ADSENSE_SLOT)}" data-ad-format="auto" data-full-width-responsive="true"></ins>` : '';
-  return `<div class="stack ${where}">
+  const H = here(); if (H.town && !DEMO) setTimeout(() => localAd(H.town), 0);
+  return `<div class="stack ${where}"><div class="local-ad" hidden></div>
     <a class="ad" href="${esc(C.SHOP_URL)}" target="_blank" rel="noopener sponsored"><span class="tag">AD · ALCX369</span>
       <img src="https://cdn.shopify.com/s/files/1/1031/8771/0269/files/alcx369-hero-minimal.jpg?v=1794604513" alt="ALCX369 Christmas gift shop – smart gifts and gadgets" loading="lazy"></a>
     ${google}<span class="small muted">Ads are hidden on Premium.</span></div>`;
+}
+// Sponsored local businesses (business accounts in the user's current town, migration 015 local_businesses)
+async function localAd(town) {
+  const box = $('.local-ad'); if (!box) return;
+  const { data } = await sb.rpc('local_businesses', { town_name: town }).then((x) => x, () => ({}));
+  const b = (data || [])[Math.floor(Math.random() * (data || []).length)]; if (!b) return;
+  box.innerHTML = `<a class="ad local" href="#/u/${esc(b.id)}"><span class="tag">AD · NEAR YOU IN ${esc(town.toUpperCase())}</span><b>${esc(b.display_name || 'Local business')}</b><small>${esc(b.biz_category || '')}${b.biz_hours ? ' · ' + esc(b.biz_hours) : ''}</small></a>`; box.hidden = false;
 }
 function activateAds() {
   if (!C.ADSENSE_SLOT || premium()) return;
@@ -453,7 +462,7 @@ function activateAds() {
 }
 
 /* ---------- navigation ---------- */
-const NAV = [['', 'Home', 'home'], ['planner', 'Assistant', 'planner'], ['trips', 'Trips', 'trips'], ['map', 'Map', 'map'], ['journal', 'Journal', 'journal'], ['explore-na', 'Namibia', 'map'], ['ready', 'Ready to Go', 'passport'], ['updates', 'Updates', 'news'], ['explore', 'Explore', 'explore'], ['messages', 'Chats', 'chat'], ['account', 'Account', 'account']];
+const NAV = [['', 'Home', 'home'], ['planner', 'Assistant', 'planner'], ['trips', 'Trips', 'trips'], ['map', 'Map', 'map'], ['journal', 'Journal', 'journal'], ['explore-na', 'Namibia', 'map'], ['ready', 'Ready to Go', 'passport'], ['updates', 'Updates', 'news'], ['explore', 'Explore', 'explore'], ['messages', 'Chats', 'chat'], ['account', 'Profile', 'account']];
 // Phone tab bar: Explore in the middle; Journal and Chats open from the Explore page
 const TABS = ['', 'planner', 'explore', 'updates', 'account'];
 function renderNav(active) {
@@ -493,11 +502,12 @@ async function render() {
   if (S.user && r.name === 'auth') { location.hash = '#/'; return; }
   // Floating assistant + in-app news sheets (chat-fab.js), hidden on the Assistant page itself
   if (S.user && window.scAskUid !== S.user.id) { window.scAskUid = S.user.id; import('./chat-fab.js').then((m) => m.mountFab({ api, esc, md, DEMO, uid: S.user.id })).catch(() => {}); }
+  if (S.user && window.scThemeUid !== S.user.id) { window.scThemeUid = S.user.id; import('./themes.js').then((m) => m.applyTheme(S.user.id, premium())).catch(() => {}); }
   document.body.classList.toggle('no-fab', !S.user || ['planner', 'auth'].includes(r.name));
   if (S.user && !pulseReady) pulseReady = import('./journey-pulse.js').then((m) => { m.startPulse(S.user.id); return m; }).catch(() => null);
   if (['ready', 'updates', 'explore'].includes(r.name)) pulse(r.name);
   renderNav(r.name === 'auth' ? null : r.name);
-  const views = { '': Home, planner: Planner, trips: Trips, map: MapView, journal: Journal, album: Album, explore: Explore, messages: Messages, account: Account, admin: Admin, updates: Updates, 'explore-na': Namibia, ready: async (m) => (await import('./ready.js')).Ready(m, { esc }), u: async (m, rr) => { cleanup = await (await import('./profile.js')).Profile(m, rr, { esc, api, sb, S, DEMO, modal, toast, reportFlow, premium, fmtDate }); }, trends: async (m) => (await import('./trends.js')).Trends(m, { esc, api, placeSearch, tier, modal, icon, gmaps, ago }), town: async (m, rr) => (await import('./town-guide.js')).TownGuide(m, rr, { esc, api, placeSearch, tier, modal, icon, gmaps, ago }), auth: Auth };
+  const views = { '': Home, planner: Planner, trips: Trips, map: MapView, journal: Journal, album: Album, explore: Explore, messages: Messages, account: Account, admin: Admin, updates: Updates, 'explore-na': Namibia, ready: async (m) => (await import('./ready.js')).Ready(m, { esc }), u: async (m, rr) => { cleanup = await (await import('./profile.js')).Profile(m, rr, { esc, api, sb, S, DEMO, modal, toast, reportFlow, premium, fmtDate }); }, trends: async (m) => (await import('./trends.js')).Trends(m, { esc, api, placeSearch, tier, modal, icon, gmaps, ago, sb, S, DEMO }), town: async (m, rr) => (await import('./town-guide.js')).TownGuide(m, rr, { esc, api, placeSearch, tier, modal, icon, gmaps, ago, sb, S, DEMO }), auth: Auth };
   const view = views[r.name] || Home;
   try { cleanup?.(); } catch { /* ignore */ } cleanup = null;
   main.innerHTML = '<div class="skeleton"><span></span><span></span><span></span></div>';
@@ -616,17 +626,18 @@ async function Home(main) {
   const bal = await api.balance();
   const hr = new Date().getHours();
   const greet = hr < 12 ? 'Good morning' : hr < 18 ? 'Good afternoon' : 'Good evening';
-  const town = (S.profile.residential_address || '').split(',').map((x) => x.trim()).filter(Boolean).slice(-2, -1)[0] || S.profile.home_country || '';
+  const H = here(); refreshQuietly();
+  const town = H.town || (S.profile.residential_address || '').split(',').map((x) => x.trim()).filter(Boolean).slice(-2, -1)[0] || S.profile.home_country || '';
   const upcoming = trips.filter((t) => t.start_date && t.start_date >= today).slice(0, 4);
   const hero = await import('./home-hero.js');
   main.innerHTML = `
   <header class="home-head reveal">
-    <div><span class="small muted">📍 ${esc(town || 'Somewhere wonderful')}${tier() !== 'free' ? ` · <b style="color:var(--accent-dark)">${tier() === 'pro' ? 'PRO' : 'PREMIUM'} ✨</b>` : ''}</span>
+    <div><span class="small muted">${H.town ? `📍 Near ${esc(H.town)}` : `📍 ${esc(town || 'Somewhere wonderful')} <button type="button" class="linklike" id="usehere">Use my location</button>`}${tier() !== 'free' ? ` · <b style="color:var(--accent-dark)">${tier() === 'pro' ? 'PRO' : 'PREMIUM'} ✨</b>` : ''}</span>
       <p class="greet">${greet}${first ? `, ${esc(first)}` : ''}</p></div>
     <div class="row"><a class="badge" href="#/account?tab=tokens" style="text-decoration:none">🪙 ${bal}</a><a class="me" href="#/account" aria-label="Your account">${esc((first || 'Y')[0].toUpperCase())}</a></div>
   </header>
-  ${hero.heroHtml(esc, S.profile.home_country_code === 'ZA' ? 'South Africa' : 'Namibia')}
-  <section class="pulse card reveal" id="pulse" aria-label="Journey pulse"></section><a class="tr-teaser card reveal" href="#/trends"><span class="eyebrow">What’s popping</span><b>Hot spots, next summer & the economy</b><span class="small">Gqeberha · Knysna · Walvis Bay · safety tips →</span></a>
+  ${hero.heroHtml(esc, H.town || H.country || (S.profile.home_country_code === 'ZA' ? 'South Africa' : 'Namibia'))}
+  <section class="pc-wrap reveal" id="postcard" aria-label="Postcard of the day"></section><section class="pulse card reveal" id="pulse" aria-label="Journey pulse"></section><a class="tr-teaser card reveal" href="#/trends"><span class="eyebrow">What’s popping</span><b>Hot spots, next summer & the economy</b><span class="small">Gqeberha · Knysna · Walvis Bay · safety tips →</span></a>
   <section class="section" style="margin-top:14px"><div class="row between"><h2 id="recsh">Must-see today</h2><a href="#/explore-na">See all →</a></div>
     <div class="chips mood" id="moods" aria-label="Moods">${HOME_MOODS.map(([k, l], i) => `<button class="chip" data-mood="${k}" aria-pressed="${i === 0}">${l}</button>`).join('')}</div>
     <div class="rail" id="recs"></div></section>
@@ -682,6 +693,8 @@ async function Home(main) {
     });
   };
   hero.mountHero(main);
+  $('#usehere')?.addEventListener('click', async (e) => { e.target.textContent = 'Finding you…'; try { await locate(); render(); } catch (err) { toast(err.message); e.target.textContent = 'Use my location'; } });
+  import('./postcard.js').then((m) => { const el = $('#postcard'); if (el) m.mountPostcard(el, { esc, uid: S.user?.id, cc: H.cc }); }).catch(() => $('#postcard')?.remove());
   pulseReady?.then((m) => { const el = $('#pulse'); if (m && el) m.mountPulseCard(el); else el?.remove(); });
   $$('[data-mood]').forEach((b) => b.onclick = () => { $$('[data-mood]').forEach((x) => x.setAttribute('aria-pressed', String(x === b))); $('#recsh').textContent = b.dataset.mood === 'all' ? 'Must-see today' : b.textContent.replace(/^\W+\s*/, ''); recs(b.dataset.mood); });
   recs('all');
@@ -869,7 +882,7 @@ async function Planner(main, r) {
       });
       bind();
     } catch (err) {
-      box.innerHTML = `<div class="notice">${esc(err.message)} ${err.upgrade ? '<a href="#/account">See plans & tokens</a>' : ''}</div>`;
+      box.innerHTML = `<div class="notice">${esc(err.message)} ${err.upgrade ? '<a href="#/account?tab=plans">See plans & tokens</a>' : ''}</div>`;
     } finally { $('#qsend').disabled = false; }
   });
 }
@@ -1061,10 +1074,16 @@ async function MapView(main) {
 /* =========================================================
    JOURNAL
    ========================================================= */
+async function myProfile(main) {
+  const [{ Profile }, { JourneyStudio }, { JournalRope }] = await Promise.all([import('./profile.js'), import('./journey-studio.js'), import('./journal-rope.js')]);
+  const mountJourney = (el) => JourneyStudio(el, { api, esc, fmtDate, loadMapLib, JournalRope, ropeDeps: { api, esc, fmtDate, editEntry, storyPlayer, toast }, S, DEMO, embedded: true });
+  return Profile(main, { id: S.user.id, q: new URLSearchParams() }, { esc, api, sb, S, DEMO, modal, toast, reportFlow, premium, fmtDate, mountJourney });
+}
+
 async function Journal(main, r) {
   if (r.id) return JournalEntry(main, r.id);
-  // The journal is drawn as a rope of knots with endless scroll (journal-rope.js)
-  cleanup = await (await import('./journal-rope.js')).JournalRope(main, { api, esc, fmtDate, editEntry, storyPlayer, toast });
+  // Your journal IS your profile: Instagram-style hero (profile.js) + Journey Studio tabs (journey-studio.js)
+  cleanup = await myProfile(main);
   if (r.q.get('new')) editEntry();
 }
 
@@ -1254,6 +1273,8 @@ const COUNTRIES = (() => { try { const dn = new Intl.DisplayNames(['en'], { type
 const countryOptions = (sel) => `<option value="">Choose…</option>${COUNTRIES.map((c) => `<option ${c === sel ? 'selected' : ''}>${esc(c)}</option>`).join('')}`;
 
 async function Account(main, r) {
+  // The Account tab opens your Instagram-style profile (profile.js); settings live at #/account?tab=settings
+  if (!r.q.toString()) { cleanup = await myProfile(main); return; }
   const p = S.profile = await api.profile();
   const [used, bal, ledger] = await Promise.all([api.plannerUsage(), api.balance(), api.ledger()]);
   const t = tier();
@@ -1334,6 +1355,7 @@ async function Account(main, r) {
   </div>`;
   let addr = p.residential_address ? { name: p.residential_address, lat: p.residential_lat, lng: p.residential_lng } : null;
   placePicker($('#paddr'), (pl) => { addr = { name: (pl.name + (pl.detail ? ', ' + pl.detail : '')).slice(0, 200), lat: pl.lat, lng: pl.lng }; });
+  if (!DEMO) { main.insertAdjacentHTML('beforeend', '<section class="card stack" id="bizset" style="margin-top:16px"></section>'); import('./business.js').then((m) => m.businessSettings($('#bizset'), { sb, S, esc, toast })).catch(() => $('#bizset')?.remove()); }
   $('#out').onclick = async () => { await api.signOut(); endSession(); };  $('#outall').onclick = async () => {
     if (DEMO) return toast('This works once you are signed in online.');
     if (!confirm('Sign out on every phone and computer, including this one?')) return;
@@ -1483,7 +1505,7 @@ async function Explore(main) {
   $$('[data-story]').forEach((b) => b.onclick = () => { const g = byUser[+b.dataset.story]; storyPlayer(slidesFor(g.entries), name(people[g.uid])); });
   $$('[data-play]').forEach((b) => b.onclick = () => { const e = feed[+b.dataset.play]; storyPlayer(slidesFor([e]), name(people[e.user_id])); });
   // Map with travellers' photo pins, town zoom, "what are you looking for" and place windows (explore-map.js)
-  (await import('./town-finder.js')).mountTownFinder($('#exfind'), { esc, api, placeSearch, tier, modal, icon, gmaps, ago });
+  (await import('./town-finder.js')).mountTownFinder($('#exfind'), { esc, api, placeSearch, tier, modal, icon, gmaps, ago, sb, S, DEMO });
   const { mountExploreMap } = await import('./explore-map.js');
   cleanup = await mountExploreMap($('#exmap'), { esc, api, loadMapLib, placeSearch, modal, reviewSheet, feed, people, urlOf });
   // Venmo-style emoji reactions under every journey
@@ -1673,7 +1695,7 @@ async function Updates(main, r) {
     const box = $('#nlist'); if (!box) return;
     if (!quiet) box.innerHTML = '<div class="skeleton"><span></span><span></span><span></span></div>';
     try {
-      const res = await api.news({ place: st.place, days: st.days, topic: st.topic, source: st.source, country: S.profile?.home_country_code || 'NA', brief: premium() });
+      const res = await api.news({ place: st.place, days: st.days, topic: st.topic, source: st.source, country: here().cc || S.profile?.home_country_code || 'NA', brief: premium() });
       if (!$('#nlist')) return;
       const items = res.items || [];
       if (!items.length) { box.innerHTML = `<div class="notice">No ${st.topic === 'all' ? '' : esc(NEWS_TOPICS.find(([k]) => k === st.topic)[1].toLowerCase()) + ' '}news about <b>${esc(st.place)}</b> ${esc(span())}. Try a longer timeframe or a bigger place.</div>`; return; }
@@ -1969,7 +1991,7 @@ async function handlePaymentReturn() {
   const token = qs.get('TransactionToken') || qs.get('TransID');
   if (!token || DEMO || !S.user) return;
   try { const r = await api.verifyPayment(token); toast(r.ok ? 'Payment received – welcome to Premium' : `Payment not completed: ${r.status || ''}`); S.profile = await api.profile(); } catch { toast('We could not confirm the payment yet. Refresh in a minute.'); }
-  history.replaceState(null, '', location.pathname + '#/account');
+  history.replaceState(null, '', location.pathname + '#/account?tab=settings');
 }
 if (sb) sb.auth.onAuthStateChange((ev) => { if (ev === 'SIGNED_OUT') { S.user = null; } });
 await boot();

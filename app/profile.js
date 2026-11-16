@@ -3,8 +3,13 @@
 // Cover from their latest memory, gold-ring avatar, stats, a 3-column grid of their public journey,
 // and chat right inside the profile (a sliding chat sheet), so you never leave their journey to talk.
 import { safeImg } from './explore-swipe.js';
+import { STAMP_TOWNS } from './journey-studio.js';
+import { themePicker } from './themes.js';
+import { mountHeadsups } from './headsups.js';
+import { businessBlock, businessInsights } from './business.js';
+const gmaps = (q) => `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(q)}`;
 
-export async function Profile(main, r, { esc, api, sb, S, DEMO, modal, toast, reportFlow, premium, fmtDate }) {
+export async function Profile(main, r, { esc, api, sb, S, DEMO, modal, toast, reportFlow, premium, fmtDate, mountJourney }) {
   const uid = decodeURIComponent(r.id || '');
   if (!uid) { location.hash = '#/explore'; return; }
   const me = uid === S.user?.id;
@@ -12,7 +17,7 @@ export async function Profile(main, r, { esc, api, sb, S, DEMO, modal, toast, re
 
   const [people, entries] = await Promise.all([
     me ? Promise.resolve({ [uid]: S.profile }) : api.profilesById([uid]).catch(() => ({})),
-    DEMO ? Promise.resolve([]) : sb.from('journal_entries').select('*').eq('user_id', uid).eq('is_public', true).order('created_at', { ascending: false }).limit(60).then(({ data }) => data || []),
+    me ? api.list('journal_entries', { order: 'visited_on' }).then((x) => x.slice().reverse()).catch(() => []) : DEMO ? Promise.resolve([]) : sb.from('journal_entries').select('*').eq('user_id', uid).eq('is_public', true).order('created_at', { ascending: false }).limit(60).then(({ data }) => data || []),
   ]);
   const a = people[uid] || {};
   const name = a.display_name || (a.username ? '@' + a.username : 'Traveller');
@@ -22,25 +27,30 @@ export async function Profile(main, r, { esc, api, sb, S, DEMO, modal, toast, re
   const places = new Set(entries.map((e) => (e.place_name || '').split(',')[0].trim()).filter(Boolean));
   const photos = entries.reduce((n, e) => n + (e.photos || []).length, 0);
   const hero = cover[entries.find((e) => e.photos?.length)?.photos?.[0]] || '';
-  let level = '';
-  if (me) { try { const m = await import('./journey-pulse.js'); const s = JSON.parse(localStorage.getItem(`sc_pulse_${uid}`) || '{}'); level = m.levelOf(s.xp || 0).name; } catch { /* no pulse yet */ } }
+  let level = '', lvlN = 0, streak = 0, pct = 0;
+  if (me) { try { const m = await import('./journey-pulse.js'); const s = JSON.parse(localStorage.getItem(`sc_pulse_${uid}`) || '{}'); const l = m.levelOf(s.xp || 0); level = l.name; lvlN = l.i + 1; pct = l.pct; streak = s.best || 0; } catch { /* no pulse yet */ } }
+  const stamps = STAMP_TOWNS.filter(([t]) => entries.some((e) => new RegExp(`\\b${t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i').test((e.place_name || '') + ' ' + (e.title || '')))).length;
 
   main.innerHTML = `
     <header class="pf-hero" style="${hero ? `background-image:linear-gradient(180deg,rgba(13,11,8,.1),rgba(13,11,8,.92)),url('${esc(hero)}')` : ''}">
-      <span class="pf-av" aria-hidden="true">${esc(name.replace('@', '')[0]?.toUpperCase() || '✦')}</span>
+      ${me ? '<a class="pf-gear" href="#/account?tab=settings" aria-label="Settings">⚙</a>' : ''}
+      <span class="pf-av" aria-hidden="true" style="--pct:${Math.round(pct * 100)}">${esc(name.replace('@', '')[0]?.toUpperCase() || '✦')}${lvlN ? `<i class="pf-lvl">${lvlN}</i>` : ''}</span>
       <h1>${esc(name)}${me && premium() ? ' <span class="pf-prem" title="Premium member">★ Premium</span>' : ''}</h1>
       <p class="pf-sub">${[a.username ? '@' + a.username : '', a.home_country ? 'from ' + a.home_country : '', level ? level : ''].filter(Boolean).map(esc).join(' · ')}</p>
       ${a.bio ? `<p class="pf-bio">${esc(a.bio)}</p>` : ''}
-      <div class="pf-stats"><span><b>${entries.length}</b>memories</span><span><b>${places.size}</b>places</span><span><b>${photos}</b>photos</span></div>
+      ${businessBlock(a, esc, gmaps)}${me && a.account_type === 'business' ? '<div id="pfins"></div>' : ''}
+      <div class="pf-stats"><span><b>${entries.length}</b>memories</span><span><b>${stamps}</b>stamps</span><span><b>${photos}</b>photos</span>${me ? `<span><b>${streak}🔥</b>best streak</span>` : `<span><b>${places.size}</b>places</span>`}</div>
       <div class="row wrap pf-acts">
-        ${me ? '<a class="btn small primary" href="#/account">Edit profile</a><a class="btn small ghost" href="#/journal?new=1">Add a memory</a>'
+        ${me ? '<a class="btn small primary" href="#/account?tab=settings">Edit profile</a><button type="button" class="btn small ghost" id="pftheme">🎨 Theme</button><a class="btn small ghost" href="#/journal?new=1">＋ Memory</a>'
           : '<button type="button" class="btn small primary" id="pfchat">💬 Message</button>'}
         <button type="button" class="btn small ghost" id="pfshare">Share</button>
         ${me ? '' : '<button type="button" class="btn small ghost" id="pfmore" aria-label="Report or block">•••</button>'}
       </div>
     </header>
-    <div class="row between pf-tabs"><h2>${me ? 'Your public journey' : `${esc(name.split(' ')[0])}'s journey`}</h2><small class="muted">${places.size ? [...places].slice(0, 3).map(esc).join(' · ') : ''}</small></div>
-    ${entries.length ? `<div class="pf-grid">${entries.map((e) => { const c = cover[e.photos?.[0]];
+    <section class="pf-hu" id="pfhu" aria-label="Heads-ups"></section>
+    <div id="pfjourney"></div>
+    <div class="row between pf-tabs" ${me && mountJourney ? 'hidden' : ''}><h2>${me ? 'Your public journey' : `${esc(name.split(' ')[0])}'s journey`}</h2><small class="muted">${places.size ? [...places].slice(0, 3).map(esc).join(' · ') : ''}</small></div>
+    ${me && mountJourney ? '' : entries.length ? `<div class="pf-grid">${entries.map((e) => { const c = cover[e.photos?.[0]];
       return `<a class="pf-cell" href="#/journal/${esc(e.id)}" style="${c ? `background-image:url('${esc(c)}')` : ''}" aria-label="${esc(e.title)}">${c ? '' : `<span>${esc(e.title.slice(0, 40))}</span>`}${(e.photos || []).length > 1 ? `<i>${e.photos.length}</i>` : ''}</a>`; }).join('')}</div>`
       : `<div class="empty">${me ? 'Nothing public yet. Make a memory public from your journal and it shows here.' : 'No public memories yet.'}</div>`}
     <section class="pf-sheet" id="pfsheet" hidden aria-label="Chat with ${esc(name)}">
@@ -55,6 +65,10 @@ export async function Profile(main, r, { esc, api, sb, S, DEMO, modal, toast, re
     try { if (navigator.share) await navigator.share({ title: `${name} on SpeedCurrency`, url: link }); else { await navigator.clipboard.writeText(link); toast('Profile link copied'); } } catch { /* cancelled */ }
   };
   main.querySelector('#pfmore')?.addEventListener('click', () => reportFlow('user', uid, uid));
+  if (!me && !DEMO) sb.rpc('record_profile_view', { target: uid }).then(() => {}, () => {}); // business insights
+  if (me && a.account_type === 'business' && !DEMO) businessInsights(main.querySelector('#pfins'), sb);
+  main.querySelector('#pftheme')?.addEventListener('click', () => themePicker({ uid, premium: premium(), modal, esc }));
+  mountHeadsups(main.querySelector('#pfhu'), { sb, esc, S, DEMO, userId: uid, title: me ? 'Your heads-ups for travellers' : 'Heads-ups' });
 
   // chat inside the profile
   let timer = null, conv = null;
@@ -83,5 +97,7 @@ export async function Profile(main, r, { esc, api, sb, S, DEMO, modal, toast, re
     try { await api.sendMessage(uid, body); inp.value = ''; conv = null; await load(); window.dispatchEvent(new CustomEvent('sc:pulse', { detail: { kind: 'message' } })); }
     catch (err) { toast(err.message); } finally { btn.disabled = false; }
   };
-  return () => clearInterval(timer);
+  let jclean = null;
+  if (me && mountJourney) jclean = await mountJourney(main.querySelector('#pfjourney'));
+  return () => { clearInterval(timer); if (typeof jclean === 'function') jclean(); };
 }

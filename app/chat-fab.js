@@ -7,7 +7,9 @@
 import { newsCover } from './news-cover.js';
 
 export const BOT = 'Nami'; // the assistant's name: change here only
-const STYLE = `\n\n(You are ${BOT}, a warm local travel buddy for Namibia and South Africa inside the SpeedCurrency app. Remember what we already talked about in this chat and build on it. Answer clearly: one short line first, then up to 4 bullet points with names, prices or times if useful. Friendly and human, no greeting, no re-introduction, don't repeat the question. If you name towns, name them exactly.)`;
+const STYLE = `
+
+(You are ${BOT}, a local friend who knows Namibia and South Africa, chatting inside the SpeedCurrency app. Remember what we already talked about in this chat and build on it. Write like a real person texting a friend: contractions, short and long sentences mixed, specific names, prices, distances and times. Start with the answer in one line, then up to 4 short bullets if a list helps. Never open with a greeting, praise of the question or a re-introduction, and don't repeat the question. Avoid brochure words (nestled, breathtaking, vibrant, stunning, hidden gem, must-visit, rich culture), filler (it's important to note, in order to, additionally) and closers like "I hope this helps" or "let me know". If you're not sure, say so plainly and suggest how to check. Name towns exactly.)`;
 const QUICK = ['Best things to do this weekend', 'Is it safe to drive at night?', 'How much is N$1000 in rand?', 'Where to stay in Swakopmund?'];
 const TOWNS = ['Windhoek', 'Swakopmund', 'Walvis Bay', 'Ondangwa', 'Oshakati', 'Rundu', 'Katima Mulilo', 'Lüderitz', 'Keetmanshoop', 'Otjiwarongo', 'Tsumeb', 'Opuwo', 'Sossusvlei', 'Etosha', 'Fish River Canyon',
   'Cape Town', 'Johannesburg', 'Durban', 'Pretoria', 'Gqeberha', 'Port Elizabeth', 'Stellenbosch', 'Franschhoek', 'Knysna', 'Hermanus', 'Plettenberg Bay', 'George', 'Bloemfontein', 'East London', 'Kruger', 'Addo'];
@@ -66,10 +68,25 @@ export function mountFab({ api, esc, md, DEMO, uid }) {
     bubble('me', esc(q)); log.push({ who: 'me', text: q });
     const out = bubble('bot', '<span class="fab-dots" aria-label="' + BOT + ' is typing"><i></i><i></i><i></i></span>');
     let acc = '', sources = [], raf = 0;
+    // 1) the app's own knowledge first: FAQ + town guides (nami-faq.js). 2) live assistant + web for anything current.
+    try {
+      const faq = await import('./nami-faq.js');
+      const lastTown = [...log].reverse().find((m) => m.town)?.town || null;
+      const loc = await faq.answerLocal(q, lastTown);
+      if (loc) {
+        const srcChip = loc.url ? `<a class="fab-chip web" href="${esc(loc.url)}" target="_blank" rel="noopener noreferrer">📚 ${esc(loc.src)}</a>` : `<span class="fab-chip web">📚 ${esc(loc.src)}</span>`;
+        const chips = chipsFor(q, loc.text + (loc.town ? ' ' + loc.town : ''), []).replace(/<a class="fab-chip web" href="https:\/\/www\.google[^>]*>[^<]*<\/a>/, '');
+        out.innerHTML = md(loc.text, []) + (chips ? chips.replace('<div class="fab-chips">', `<div class="fab-chips">${srcChip}`) : `<div class="fab-chips">${srcChip}</div>`);
+        log.push({ who: 'bot', text: loc.text, q, town: loc.town, local: true, src: loc.src });
+        busy = false; save(); msgs.scrollTop = msgs.scrollHeight; return;
+      }
+    } catch { /* fall through to the live assistant */ }
     const paint = () => { raf = 0; out.innerHTML = md(acc, sources); msgs.scrollTop = msgs.scrollHeight; };
     try {
       if (DEMO) throw new Error(`${BOT} chats once you are signed in online.`);
-      await api.askStream(chatId, q + STYLE, 'plan', (ev) => {
+      const H = await import('./here.js').then((m) => m.here()).catch(() => ({}));
+      const where = H.town ? `\n(The traveller is near ${H.town}${H.country ? ', ' + H.country : ''} right now.)` : H.country ? `\n(The traveller is in ${H.country} right now.)` : '';
+      await api.askStream(chatId, q + where + STYLE, 'plan', (ev) => {
         if (ev.type === 'start') { chatId = ev.chat_id; save(); }
         if (ev.type === 'search') out.innerHTML = `<span class="muted">🔎 Looking up ${esc(ev.query || 'the web')}…</span>`;
         if (ev.type === 'text') { acc += ev.text; if (!raf) raf = requestAnimationFrame(paint); }
@@ -78,7 +95,8 @@ export function mountFab({ api, esc, md, DEMO, uid }) {
       });
       if (!acc) acc = 'Hmm, I couldn’t find a good answer to that one. Try asking it another way?';
       out.innerHTML = md(acc, sources) + chipsFor(q, acc, sources);
-      log.push({ who: 'bot', text: acc, q, sources: sources.slice(0, 5) });
+      log.push({ who: 'bot', text: acc, q, sources: sources.slice(0, 5), town: (await import('./nami-faq.js').then((m) => m.townIn(q + ' ' + acc)).catch(() => null)) });
+      if (sources.length || acc) out.insertAdjacentHTML('afterbegin', '<span class="fab-live">🌐 Live web</span>');
     } catch (err) {
       out.innerHTML = err.upgrade ? 'You’ve used your free questions this month. <a href="#/account?tab=plans">Premium</a> gives you more.' : esc(err.message);
       log.pop();

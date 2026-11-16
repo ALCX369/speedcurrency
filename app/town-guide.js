@@ -6,12 +6,14 @@
 import { overpass, CATS } from './explore-map.js';
 import { safeImg } from './explore-swipe.js';
 import { newsCover } from './news-cover.js';
+import { mountHeadsups } from './headsups.js';
 
 const SECTIONS = [ // Wikivoyage listing type -> our section
   ['see', 'Top attractions', '🏛'], ['do', 'Things to do', '🏄'], ['buy', 'Malls, markets & shops', '🛍'],
   ['eat', 'Where to eat', '🍽'], ['drink', 'Nightlife & cafés', '🍸'], ['sleep', 'Where to stay', '🛏'],
 ];
 const FREE_PER_SECTION = 4;
+const fmtKm = (d) => (d < 1 ? Math.round(d * 1000) + ' m' : d.toFixed(1) + ' km');
 const HEAD_TO_TYPE = { see: 'see', do: 'do', buy: 'buy', eat: 'eat', drink: 'drink', sleep: 'sleep' };
 
 /* ---------- Wikivoyage: a free, community travel guide with named listings ---------- */
@@ -44,7 +46,7 @@ function parseListings(wt) {
   return out;
 }
 
-async function wikivoyage(town) {
+export async function wikivoyage(town) {
   const api = 'https://en.wikivoyage.org/w/api.php?format=json&origin=*';
   const get = async (page) => { const j = await fetch(`${api}&action=parse&prop=wikitext&redirects=1&page=${encodeURIComponent(page)}`, { signal: AbortSignal.timeout(10000) }).then((r) => r.json()); return j?.parse ? { title: j.parse.title, wt: j.parse.wikitext['*'] } : null; };
   let hit = await get(town).catch(() => null);
@@ -98,7 +100,7 @@ async function weather(c) {
   return t == null ? '' : `${icon} ${Math.round(t)}°C now`;
 }
 
-export async function TownGuide(main, r, { esc, api, placeSearch, tier, modal, icon, gmaps, ago }, opts = {}) {
+export async function TownGuide(main, r, { esc, api, placeSearch, tier, modal, icon, gmaps, ago, sb, S, DEMO }, opts = {}) {
   const town = decodeURIComponent(r.id || '').trim();
   if (!town) { location.hash = '#/explore'; return; }
   const premium = tier() !== 'free';
@@ -128,6 +130,7 @@ export async function TownGuide(main, r, { esc, api, placeSearch, tier, modal, i
     <section class="tg-sec" id="tg-fuel"><h2>⛽ Fuel stations & garages</h2><div id="tgfuel"><div class="skeleton"><span></span></div></div></section>
     <section class="tg-sec" id="tg-sport"><h2>🏟 Sport & malls nearby</h2><div class="tg-osm" id="tgosm"><div class="skeleton"><span></span></div></div></section>
     <section class="tg-sec" id="tg-events"><h2>🎉 Events & news</h2><div id="tgnews"><div class="skeleton"><span></span></div></div></section>
+    <section class="tg-sec tg-hu" id="tghu" aria-label="Heads-ups for ${esc(town)}"></section>
     <section class="tg-sec"><h2>Travellers who've been here</h2><div id="tgppl" class="tg-ppl"><div class="skeleton"><span></span></div></div></section>
     <p class="small muted" id="tgcred">Guide listings: Wikivoyage (CC BY-SA). Photos: Wikimedia Commons. Places: © OpenStreetMap contributors.</p>`;
 
@@ -202,9 +205,9 @@ export async function TownGuide(main, r, { esc, api, placeSearch, tier, modal, i
       fuel ||= []; sport ||= []; shops ||= [];
       const malls = shops.filter((p) => /mall|department/i.test(p.kind)).concat(shops.filter((p) => !/mall|department/i.test(p.kind)));
       Object.assign(G, { sport, malls, fuel });
-      if (fuel.length || !main.querySelector('#tgfuel .small')) main.querySelector('#tgfuel').innerHTML = fuel.length ? `<div class="tg-list">${(premium ? fuel.slice(0, 20) : fuel.slice(0, 6)).map((p) => `<a class="tg-row" href="${esc(gmaps(`${p.name} ${p.lat},${p.lng}`))}" target="_blank" rel="noopener noreferrer"><b>⛽ ${esc(p.name)}</b><small class="muted">${esc(p.kind || 'fuel')} · ${p.dist < 1 ? Math.round(p.dist * 1000) + ' m' : p.dist.toFixed(1) + ' km'} from the centre${p.hours ? ' · ' + esc(p.hours.slice(0, 40)) : ''}</small></a>`).join('')}</div>` : '<p class="small muted">No fuel stations mapped here yet.</p>';
+      if (fuel.length || !main.querySelector('#tgfuel .small')) main.querySelector('#tgfuel').innerHTML = fuel.length ? `<div class="tg-list">${(premium ? fuel.slice(0, 20) : fuel.slice(0, 6)).map((p) => `<a class="tg-row" href="${esc(gmaps(`${p.name} ${p.lat},${p.lng}`))}" target="_blank" rel="noopener noreferrer"><b>⛽ ${esc(p.name)}</b><small class="muted">${esc(p.kind || 'fuel')} · ${fmtKm(p.dist)} from the centre${p.hours ? ' · ' + esc(p.hours.slice(0, 40)) : ''}</small></a>`).join('')}</div>` : '<p class="small muted">No fuel stations mapped here yet.</p>';
       const block = (title, arr) => { if (!arr.length) return ''; const show = premium ? arr.slice(0, 20) : arr.slice(0, FREE_PER_SECTION);
-        return `<h3>${esc(title)}</h3><div class="tg-list">${show.map((p) => `<a class="tg-row" href="${esc(gmaps(`${p.name} ${p.lat},${p.lng}`))}" target="_blank" rel="noopener noreferrer"><b>${esc(p.name)}</b><small class="muted">${esc(p.kind || '')} · ${p.dist < 1 ? Math.round(p.dist * 1000) + ' m' : p.dist.toFixed(1) + ' km'}</small></a>`).join('')}${!premium && arr.length > FREE_PER_SECTION ? lockCard(Math.min(arr.length, 20) - FREE_PER_SECTION, title) : ''}</div>`; };
+        return `<h3>${esc(title)}</h3><div class="tg-list">${show.map((p) => `<a class="tg-row" href="${esc(gmaps(`${p.name} ${p.lat},${p.lng}`))}" target="_blank" rel="noopener noreferrer"><b>${esc(p.name)}</b><small class="muted">${esc(p.kind || '')} · ${fmtKm(p.dist)}</small></a>`).join('')}${!premium && arr.length > FREE_PER_SECTION ? lockCard(Math.min(arr.length, 20) - FREE_PER_SECTION, title) : ''}</div>`; };
       if (sport.length || shops.length || osm.querySelector('.skeleton')) osm.innerHTML = block('Stadiums, gyms & golf', sport) + block('Malls & shops', malls) || '<p class="small muted">Nothing mapped nearby yet.</p>';
     });
   } else { osm.innerHTML = '<p class="small muted">Could not find this town on the map.</p>'; main.querySelector('#tgfuel').innerHTML = ''; }
@@ -218,6 +221,7 @@ export async function TownGuide(main, r, { esc, api, placeSearch, tier, modal, i
       : `<p class="small muted">No events found in the last 2 months. <a href="https://www.google.com/search?q=${encodeURIComponent('events this month ' + town)}" target="_blank" rel="noopener noreferrer">Search events</a></p>`;
   }).catch(() => { const box = main.querySelector('#tgnews'); if (box) box.innerHTML = '<p class="small muted">News is not available right now.</p>'; });
 
+  if (sb) mountHeadsups(main.querySelector('#tghu'), { sb, esc, S, DEMO, town, title: `Heads-ups for ${town}` });
   // travellers who've been here (public memories within 20 km)
   const ppl = main.querySelector('#tgppl');
   try {
@@ -238,11 +242,10 @@ function askBox(main, town, CO, G, { esc, api, gmaps }) {
   const form = main.querySelector('#tgask'); const out = main.querySelector('#tgans'); let n = 0, chatId = null;
   const names = (arr, k = 3) => arr.slice(0, k).map((x) => `<b>${esc(x.name)}</b>`);
   const list = (arr) => (arr.length > 1 ? arr.slice(0, -1).join(', ') + ' and ' + arr[arr.length - 1] : arr[0] || '');
-  const km = (p) => (p.dist < 1 ? Math.round(p.dist * 1000) + ' m' : p.dist.toFixed(1) + ' km');
   const local = (q) => {
     const hit = INTENTS.find(([re]) => re.test(q)); if (!hit) return null;
     const [, key, what] = hit; const open = OPENERS[n++ % OPENERS.length];
-    if (key === 'fuel') return G.fuel.length ? `${open}the closest places ${what} are ${list(G.fuel.slice(0, 3).map((p) => `<b>${esc(p.name)}</b> (${km(p)})`))}. Fill up before long drives, towns can be far apart.` : null;
+    if (key === 'fuel') return G.fuel.length ? `${open}the closest places ${what} are ${list(G.fuel.slice(0, 3).map((p) => `<b>${esc(p.name)}</b> (${fmtKm(p.dist)})`))}. Fill up before long drives, towns can be far apart.` : null;
     if (key === 'sport') return G.sport.length ? `${open}try ${list(names(G.sport))} ${what}.` : null;
     if (key === 'events') return G.news.length ? `${open}the latest is “${esc(G.news[0].title)}”. More in the events list below.` : 'Nothing listed in the last two months. Locals and the town’s Facebook pages usually know first.';
     if (key === 'weather') return G.wx ? `It’s ${esc(G.wx.replace(/ now$/, ''))} right now in ${esc(town)}.` : null;
