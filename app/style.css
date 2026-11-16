@@ -869,3 +869,109 @@ a.pw-person:hover{border-color:var(--accent)}
 .confetti i{position:absolute;top:-12px;left:var(--x);width:9px;height:14px;border-radius:2px;background:var(--c);animation:fall var(--d) var(--delay) ease-in forwards}
 @keyframes fall{to{transform:translateY(105vh) rotate(var(--r));opacity:.9}}
 @media (prefers-reduced-motion:reduce){.pulse::after,.streak.lit svg{animation:none}.pr-fg{transition:none}.xp-float,.pulse-banner{animation-duration:.01s;animation-delay:2.5s}.quest{transition:none}}
+
+/* Explore swipe deck (explore-swipe.js): dating-app style cards */
+.ex-bar{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:12px 0 6px}
+.seg{display:inline-flex;padding:4px;border-radius:999px;background:var(--soft);border:1px solid var(--line)}
+.seg button{min-height:40px;padding:0 18px;border:0;border-radius:999px;background:none;color:var(--muted);font-weight:800;cursor:pointer}
+.seg button[aria-pressed="true"]{background:var(--accent);color:var(--on-accent)}
+.ex.swipe .ex-card{display:none}
+.ex-cats{position:static;margin:6px 0}
+.sw{display:flex;flex-direction:column;align-items:center;gap:16px;margin:8px 0 4px}
+.sw-stack{position:relative;width:100%;max-width:420px;aspect-ratio:3/4;max-height:68vh}
+.sw-card{position:absolute;inset:0;border-radius:28px;overflow:hidden;background:radial-gradient(120% 90% at 30% 10%,#3A2C1A,var(--surface) 70%) center/cover no-repeat;border:1px solid rgba(216,166,87,.25);box-shadow:0 24px 50px rgba(0,0,0,.55);touch-action:pan-y;user-select:none;cursor:grab;transform:translateY(calc(var(--n,0) * 12px)) scale(calc(1 - var(--n,0) * .045));transition:transform .3s var(--ease)}
+.sw-card:active{cursor:grabbing}
+.sw-card::after{content:"";position:absolute;inset:0;background:linear-gradient(180deg,rgba(0,0,0,.25) 0%,transparent 28%,transparent 45%,rgba(13,11,8,.95) 100%);pointer-events:none}
+.sw-card:focus-visible{outline:3px solid var(--accent);outline-offset:3px}
+.sw-ph{position:absolute;inset:0;display:grid;place-items:center;font-size:84px;opacity:.55}
+.sw-badge{position:absolute;z-index:2;top:16px;left:16px;padding:6px 12px;border-radius:999px;background:rgba(13,11,8,.6);backdrop-filter:blur(8px);border:1px solid rgba(216,166,87,.4);color:var(--accent);font-size:12px;font-weight:800;letter-spacing:.08em;text-transform:uppercase}
+.sw-info{position:absolute;z-index:2;left:0;right:0;bottom:0;padding:22px 20px 20px;display:flex;flex-direction:column;gap:6px}
+.sw-info h2{margin:0;font-family:var(--display);font-size:34px;line-height:1.02;color:#F3ECDF}
+.sw-info p{margin:0;color:#D9CDB8;font-size:15px}
+.sw-tags{display:flex;flex-wrap:wrap;gap:6px;margin-top:4px}
+.sw-tags span:empty{display:none}
+.sw-tags span{padding:5px 11px;border-radius:999px;background:rgba(243,236,223,.12);border:1px solid rgba(243,236,223,.18);color:#F3ECDF;font-size:12px;font-weight:700}
+.sw-stamp{position:absolute;z-index:3;top:28px;padding:6px 14px;border:3px solid;border-radius:12px;font-weight:900;font-size:26px;letter-spacing:.08em;text-transform:uppercase;pointer-events:none}
+.sw-stamp.yes{left:22px;color:var(--accent);transform:rotate(-14deg);opacity:var(--yes,0)}
+.sw-stamp.no{right:22px;color:var(--ember);transform:rotate(14deg);opacity:var(--no,0)}
+.sw-btns{display:flex;align-items:center;gap:22px}
+.sw-b{display:grid;place-items:center;width:64px;height:64px;border-radius:50%;border:1px solid var(--line);background:var(--surface);cursor:pointer;box-shadow:0 10px 24px rgba(0,0,0,.45);transition:transform .2s var(--spring)}
+.sw-b:active{transform:scale(.9)}
+.sw-b.no{color:var(--ember);border-color:rgba(255,106,43,.45)}
+.sw-b.yes{width:74px;height:74px;color:var(--on-accent);background:linear-gradient(135deg,var(--gold-hi),var(--accent));border:0}
+.sw-b.info{width:50px;height:50px;color:var(--muted)}
+.sw-empty{position:absolute;inset:0;display:grid;place-items:center;padding:30px;text-align:center;border-radius:28px;border:1px dashed var(--line);color:var(--muted)}
+@media (prefers-reduced-motion:reduce){.sw-card,.sw-b{transition:none}}
+.ex [hidden]{display:none!important}
+
+/* =========================================================
+   "Dune Day" fusion (2026-11-16): David's travel-app references (light, frosted glass,
+   big rounded photo cards, black pills, bold italic headings) fused with Obsidian Dune.
+   Pages go light ivory; hero pieces stay dark gold "islands" (Pulse card, dock, swipe cards,
+   night cards, memory slideshow, journal rope, chats, map). Islands re-set the tokens locally.
+   ========================================================= */
+:root{
+  --bg:#F4F1EA; --surface:#FFFFFF; --soft:#EEEAE1; --line:#E2DCCF; --ink:#14120E; --muted:#6B6457; --muted2:#4A443A;
+  --accent:#B5832F; --on-accent:#14120E; --accent-dark:#8A611F; --gold-hi:#E2B466; --gold-deep:#7A5520;
+  --ok:#1E7A4C; --ok-bg:#E3F2EA; --warn-bg:#F6E9D2;
+  --glass:rgba(255,255,255,.72);
+  color-scheme:light;
+}
+body{background:
+  radial-gradient(80% 40% at 90% -8%,rgba(181,131,47,.14),transparent 60%),
+  radial-gradient(70% 40% at -10% 30%,rgba(140,170,190,.14),transparent 60%),
+  var(--bg) fixed}
+h1{font-style:italic;font-weight:700;letter-spacing:-.02em}
+.explore-title em,.ex-head h1{font-style:italic}
+
+/* dark-gold islands */
+.card.night,.town-hero,.onb,.rope,.wa-chat,.ms,.bubble,.pulse,.sw-card,.story-view,.ex-map,.next-trip,.promo-dark{
+  --bg:#0D0B08; --surface:#17140F; --soft:#221D16; --line:#2F2920; --ink:#F3ECDF; --muted:#B8AE9A; --muted2:#D3C8B4;
+  --accent:#D8A657; --on-accent:#17120A; --gold-hi:#F0CB8A; color:var(--ink)}
+.pulse{box-shadow:0 24px 50px rgba(20,18,14,.28)}
+
+/* frosted surfaces and soft shadows, like the references */
+.card,.journey,.date-tile,.react,.rope-step,.searchbar,.modal .panel,.cp-list{box-shadow:0 10px 30px rgba(60,48,30,.08)}
+.card{border-radius:28px;background:var(--surface)}
+.searchbar{border-radius:999px;background:rgba(255,255,255,.85);-webkit-backdrop-filter:blur(14px);backdrop-filter:blur(14px)}
+.journey{border-radius:28px;overflow:hidden}
+.skeleton span,.pw-pics .pw-load{background:linear-gradient(90deg,var(--soft),#F8F6F1,var(--soft));background-size:200% 100%}
+.modal{background:rgba(20,18,14,.45)}
+.map-top .input{background:rgba(255,255,255,.94)}
+.buddy .av{background:linear-gradient(135deg,#FFF6E6,#F0E4CC);color:var(--gold-deep)}
+.avatar{background:#F0E4CC;color:var(--gold-deep)}
+.card.night .input,.convert .input,.card.night .btn.ghost,.convert .btn.ghost{background:#1C1711}
+
+/* black pill buttons with a gold glint (the references' black pills + our gold) */
+.btn{border-radius:999px;border-color:var(--line)}
+.btn.primary{background:#14120E;border-color:#14120E;color:#F3ECDF;box-shadow:inset 0 -2px 0 var(--accent)}
+.btn.primary:hover{background:#2A251C}
+.btn.ghost{background:rgba(255,255,255,.8);color:var(--ink)}
+.card.night .btn.primary,.pulse .btn.primary,.onb .btn.primary,.town-hero .btn.primary{background:linear-gradient(180deg,#E2B466,#D8A657);color:#17120A;border-color:#D8A657;box-shadow:none}
+.chip{background:rgba(255,255,255,.8);border-color:var(--line)}
+.chip[aria-pressed=true]{background:#14120E;color:#F3ECDF;border-color:#14120E}
+.card.night .chip,.ex-map .chip{background:var(--soft)}
+.badge.dark{color:#E2B466}
+.toast{background:#14120E;color:#F3ECDF}
+
+/* the dock: a dark glass pill floating over the light page (reference 1) */
+@media (max-width:860px){
+  .tabbar{--ink:#F3ECDF;--muted:#B8AE9A;--muted2:#D3C8B4;background:rgba(20,18,14,.88)!important;color:#F3ECDF;border:1px solid rgba(216,166,87,.25);box-shadow:0 18px 40px rgba(20,18,14,.35)}
+  .tabbar a{color:#D3C8B4}
+  .tabbar a[aria-current=page]{background:#D8A657;color:#17120A}
+}
+.side{background:rgba(255,255,255,.6)}
+
+/* explore: light controls around the dark swipe deck */
+.seg{background:rgba(255,255,255,.85)}
+.seg button[aria-pressed="true"]{background:#14120E;color:#F3ECDF}
+.sw-b{background:#fff;box-shadow:0 10px 24px rgba(60,48,30,.15)}
+.sw-b.no{color:#D4501B}
+.sw-b.yes{background:#14120E;color:#E2B466}
+.sw-empty{background:rgba(255,255,255,.6)}
+
+/* pulse feedback stays gold */
+.xp-float{background:#14120E;color:#E2B466}
+.pulse-banner.small{background:#fff;color:#14120E}
+.insight{background:rgba(255,255,255,.82);-webkit-backdrop-filter:blur(12px);backdrop-filter:blur(12px);border-color:var(--line);box-shadow:0 10px 26px rgba(60,48,30,.08)}
+.insight .ic{background:#14120E;color:#E2B466}

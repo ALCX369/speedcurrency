@@ -17,6 +17,8 @@ const CATS = [ // key, label, Overpass filters (';' separated), radius m
   ['shops', 'Shops & malls', 'nwr["shop"~"^(supermarket|mall|department_store)$"]', 8000],
   ['money', 'ATMs & banks', 'nwr["amenity"~"^(atm|bank|bureau_de_change)$"]', 6000],
 ];
+const CAT_ICON = { food: '🍽', fuel: '⛽', fun: '🎳', museum: '🏛', stadium: '🏟', campus: '🎓', garden: '🌿', stay: '🛏', shops: '🛍', money: '🏧' };
+const cap = (s) => (s ? s[0].toUpperCase() + s.slice(1) : s);
 const km = (a, b) => { const r = (x) => x * Math.PI / 180; return 6371 * 2 * Math.asin(Math.sqrt(Math.sin(r(b.lat - a.lat) / 2) ** 2 + Math.cos(r(a.lat)) * Math.cos(r(b.lat)) * Math.sin(r(b.lng - a.lng) / 2) ** 2)); };
 const dist = (d) => (d < 1 ? `${Math.round(d * 1000)} m` : `${d.toFixed(1)} km`);
 const gmaps = (q) => `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(q)}`;
@@ -52,14 +54,19 @@ export async function mountExploreMap(root, deps) {
   const name = (a) => (a ? (a.display_name || '@' + (a.username || 'traveller')) : 'Traveller');
   const st = { town: null, center: null, cat: null, places: [], markers: [] };
 
+  const saved = () => { try { return JSON.parse(localStorage.getItem('sc_saved_places') || '[]'); } catch { return []; } };
+  root.classList.add('swipe');
   root.innerHTML = `
     <form class="searchbar" id="exq" role="search"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
       <label class="sr" for="exqi">Find a town</label><input id="exqi" placeholder="Find a town in Namibia or South Africa" autocomplete="off"><button class="btn small primary">Go</button></form>
     <div class="chips mood" id="extowns" aria-label="Towns">${TOWNS.map((t) => `<button type="button" class="chip" data-town="${esc(t)}">${esc(t)}</button>`).join('')}</div>
-    <div class="ex-map">
+    <div class="ex-bar"><div class="seg" role="group" aria-label="View"><button type="button" data-v="swipe" aria-pressed="true">Swipe</button><button type="button" data-v="map" aria-pressed="false">Map</button></div>
+      <button type="button" class="chip" id="exsaved">♥ Saved <b>${saved().length}</b></button></div>
+    <div class="ex-cats chips" id="excats" hidden aria-label="What are you looking for?">${CATS.map(([k, l]) => `<button type="button" class="chip" data-cat="${k}" aria-pressed="false">${esc(l)}</button>`).join('')}</div>
+    <div class="sw" id="exdeck"></div>
+    <div class="ex-map" hidden>
       <div id="exmapc" role="application" aria-label="Explore map"></div>
       <div class="ex-title" id="extitle"><b>Travellers on the map</b><small>${feed.filter((e) => e.lat != null).length} public memories · pick a town to explore</small></div>
-      <div class="ex-cats chips" id="excats" hidden aria-label="What are you looking for?">${CATS.map(([k, l]) => `<button type="button" class="chip" data-cat="${k}" aria-pressed="false">${esc(l)}</button>`).join('')}</div>
     </div>
     <div class="rail ex-rail" id="exrail" aria-live="polite"></div>
     <p class="small muted">Map © OpenStreetMap contributors · tiles OpenFreeMap · photos Wikimedia Commons.</p>`;
@@ -128,7 +135,8 @@ export async function mountExploreMap(root, deps) {
         el.setAttribute('aria-label', p.name); el.addEventListener('click', (ev) => { ev.stopPropagation(); placeWindow(p); });
         st.markers.push(new maplibregl.Marker({ element: el }).setLngLat([p.lng, p.lat]).addTo(map)); bb.extend([p.lng, p.lat]);
       });
-      map.fitBounds(bb, { padding: 60, maxZoom: 15 });
+      st.bb = bb; map.fitBounds(bb, { padding: 60, maxZoom: 15 });
+      deck?.set(st.places.map((p, n) => ({ id: p.key, title: p.name, icon: CAT_ICON[key], badge: `${n + 1} of ${st.places.length}`, sub: `${cap(p.kind || cat[1])} · ${dist(p.dist)} away`, tags: [p.hours && 'Hours listed', p.phone && 'Call', p.web && 'Website', st.town], data: { type: 'place', p } })));
       rail.innerHTML = st.places.map((p, i) => `<button type="button" class="ex-card" data-p="${i}"><span class="n">${i + 1}</span><b>${esc(p.name)}</b><small>${esc(p.kind || cat[1])} · ${dist(p.dist)}</small></button>`).join('');
     } catch (err) { if (mine === req) oops(err, () => pickCat(key)); }
   };
@@ -166,7 +174,52 @@ export async function mountExploreMap(root, deps) {
     });
   };
 
-  root.querySelector('#exq').onsubmit = (ev) => { ev.preventDefault(); const q = root.querySelector('#exqi').value.trim(); if (q.length > 1) goTown(q); };
+  // Swipe deck (explore-swipe.js): towns and travellers' memories first, then the places in a town
+  const { mountSwipe } = await import('./explore-swipe.js');
+  const SA = ['Cape Town', 'Johannesburg', 'Durban'];
+  const startCards = [];
+  const mems = feed.filter((e) => urlOf[e.photos?.[0]]);
+  TOWNS.forEach((t, k) => {
+    startCards.push({ id: 'town:' + t, title: t, icon: '◎', badge: 'Town', sub: `${SA.includes(t) ? 'South Africa' : 'Namibia'} · swipe right to explore`, tags: ['Food', 'Sights', 'Stays'], data: { type: 'town', t } });
+    const e = mems[k]; if (e) startCards.push({ id: 'mem:' + e.id, img: urlOf[e.photos[0]], title: e.title, badge: 'Traveller', sub: `${name(people[e.user_id])}${e.place_name ? ' · 📍 ' + e.place_name : ''}`, tags: [e.rating ? '★'.repeat(e.rating) : '', (e.photos || []).length > 1 ? `${e.photos.length} photos` : ''], data: { type: 'mem', e } });
+  });
+  const deck = mountSwipe(root.querySelector('#exdeck'), {
+    cards: startCards, esc, yesLabel: 'Yes', noLabel: 'Skip',
+    empty: 'That was the whole deck. Pick a town above, or switch to <b>Map</b>.',
+    loadImg: async (c) => {
+      if (c.data.type === 'town') {
+        const j = await fetch(`https://en.wikipedia.org/w/api.php?action=query&titles=${encodeURIComponent(c.data.t)}&redirects=1&prop=pageimages&pithumbsize=800&format=json&origin=*`, { signal: AbortSignal.timeout(8000) }).then((r) => r.json());
+        return Object.values(j?.query?.pages || {})[0]?.thumbnail?.source || '';
+      }
+      if (c.data.type === 'place') return (await commonsPhotos(c.data.p))[0] || '';
+      return '';
+    },
+    onOpen: (c) => (c.data.type === 'town' ? goTown(c.data.t) : c.data.type === 'mem' ? memoryWindow(c.data.e) : placeWindow(c.data.p)),
+    onYes: (c) => {
+      if (c.data.type === 'town') return goTown(c.data.t);
+      if (c.data.type === 'mem') { api.react?.(c.data.e.id, '❤️', true).catch(() => {}); return; }
+      const p = c.data.p; const list = saved().filter((x) => x.key !== p.key);
+      list.unshift({ key: p.key, name: p.name, kind: p.kind, town: st.town, lat: p.lat, lng: p.lng });
+      try { localStorage.setItem('sc_saved_places', JSON.stringify(list.slice(0, 100))); } catch { /* private mode */ }
+      root.querySelector('#exsaved b').textContent = Math.min(list.length, 100);
+      window.dispatchEvent(new CustomEvent('sc:pulse', { detail: { kind: 'place' } }));
+    },
+  });
+  // Swipe / Map switch
+  root.querySelector('.seg').addEventListener('click', (ev) => {
+    const b = ev.target.closest('[data-v]'); if (!b) return; const v = b.dataset.v;
+    root.querySelectorAll('.seg [data-v]').forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
+    root.classList.toggle('swipe', v === 'swipe'); root.querySelector('#exdeck').hidden = v !== 'swipe'; root.querySelector('.ex-map').hidden = v !== 'map';
+    if (v === 'map') { map.resize(); if (st.bb) map.fitBounds(st.bb, { padding: 60, maxZoom: 15, duration: 0 }); }
+  });
+  root.querySelector('#exsaved').onclick = () => {
+    const list = saved();
+    modal(`<div class="pw"><span class="eyebrow">Your shortlist</span><h2>Saved places</h2>
+      ${list.length ? list.map((x) => `<a class="pw-person" href="${esc(gmaps(`${x.name} ${x.lat},${x.lng}`))}" target="_blank" rel="noopener noreferrer"><span class="avatar">♥</span><span class="pw-who"><b>${esc(x.name)}</b><small>${esc(cap(x.kind || 'Place'))}${x.town ? ' · ' + esc(x.town) : ''}</small></span></a>`).join('') : '<p class="small muted" style="margin:0">Swipe right on a place to save it here.</p>'}
+      <button class="btn small ghost" data-close style="align-self:flex-start">Close</button></div>`);
+  };
+
+  root.querySelector('#exq').onsubmit =(ev) => { ev.preventDefault(); const q = root.querySelector('#exqi').value.trim(); if (q.length > 1) goTown(q); };
   root.querySelector('#extowns').addEventListener('click', (ev) => { const b = ev.target.closest('[data-town]'); if (b) goTown(b.dataset.town); });
   root.querySelector('#excats').addEventListener('click', (ev) => { const b = ev.target.closest('[data-cat]'); if (b) pickCat(b.dataset.cat); });
   rail.addEventListener('click', (ev) => { const b = ev.target.closest('[data-p]'); if (b) { const p = st.places[+b.dataset.p]; map.flyTo({ center: [p.lng, p.lat], zoom: 16 }); placeWindow(p); } });

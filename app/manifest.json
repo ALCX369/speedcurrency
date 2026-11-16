@@ -3,8 +3,8 @@
   "short_name": "SpeedCurrency",
   "start_url": "./",
   "display": "standalone",
-  "background_color": "#0D0B08",
-  "theme_color": "#0D0B08",
+  "background_color": "#F4F1EA",
+  "theme_color": "#F4F1EA",
   "description": "AI travel planner, journal, map and money converter.",
   "icons": [{ "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }]
 }
