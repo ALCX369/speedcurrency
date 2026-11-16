@@ -48,19 +48,21 @@ export function countryFor(code, homeCc) {
 function search(q, hasRate) {
   const s = q.trim().toLowerCase();
   const ok = (c) => !hasRate || hasRate(c.cur);
-  if (!s) return COUNTRIES.filter(ok).slice(0, 8);
+  // Empty box: the whole list, A-Z, to scroll through.
+  if (!s) return COUNTRIES.filter(ok);
   const score = (c) => {
     const n = c.name.toLowerCase();
-    if (c.cur.toLowerCase() === s) return 0;
+    if (c.cur.toLowerCase() === s || c.cc.toLowerCase() === s) return 0;
     if (n.startsWith(s)) return 1;
-    if (n.includes(s)) return 2;
-    if (c.curName.toLowerCase().includes(s)) return 3;
+    if (n.split(/[\s-]+/).some((w) => w.startsWith(s))) return 2; // "africa" finds South Africa
+    if (n.includes(s)) return 3;
+    if (c.curName.toLowerCase().includes(s)) return 4;
     return 9;
   };
   return COUNTRIES.filter(ok).map((c) => [score(c), c]).filter(([sc]) => sc < 9)
     // ties: the currency's home country first (US for USD, AU for AUD), then A-Z
     .sort((a, b) => a[0] - b[0] || (b[1].cur.startsWith(b[1].cc) - a[1].cur.startsWith(a[1].cc)) || a[1].name.localeCompare(b[1].name))
-    .slice(0, 8).map(([, c]) => c);
+    .map(([, c]) => c);
 }
 
 /**
@@ -91,7 +93,8 @@ export function attachCurrencyPicker(input, opts) {
       ? items.map((c, i) => `<li role="option" id="${list.id}-${i}" aria-selected="${i === active}" data-i="${i}">${flag(c.cc, esc)}<span><b>${esc(c.name)}</b><small>${esc(c.curName)} · ${esc(c.cur)}</small></span></li>`).join('')
       : '<li class="cp-none" aria-disabled="true">No match. Try a country or a code like NAD.</li>';
     list.hidden = false; input.setAttribute('aria-expanded', 'true');
-    if (active >= 0) input.setAttribute('aria-activedescendant', `${list.id}-${active}`); else input.removeAttribute('aria-activedescendant');
+    if (active >= 0) { input.setAttribute('aria-activedescendant', `${list.id}-${active}`); list.children[active]?.scrollIntoView({ block: 'nearest' }); }
+    else input.removeAttribute('aria-activedescendant');
   };
   const open = () => { items = search(input.value === input.dataset.label ? '' : input.value, opts.hasRate); active = items.length ? 0 : -1; paint(); };
   const pick = (i) => { const c = items[i]; if (!c) return; set(c); close(); onPick?.(); };

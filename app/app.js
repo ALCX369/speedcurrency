@@ -453,11 +453,12 @@ function activateAds() {
 
 /* ---------- navigation ---------- */
 const NAV = [['', 'Home', 'home'], ['planner', 'Assistant', 'planner'], ['trips', 'Trips', 'trips'], ['map', 'Map', 'map'], ['journal', 'Journal', 'journal'], ['explore-na', 'Namibia', 'map'], ['ready', 'Ready to Go', 'passport'], ['updates', 'Updates', 'news'], ['explore', 'Explore', 'explore'], ['messages', 'Chats', 'chat'], ['account', 'Account', 'account']];
-const TABS = ['', 'planner', 'updates', 'journal', 'messages', 'account'];
+// Phone tab bar: Explore in the middle; Journal and Chats open from the Explore page
+const TABS = ['', 'planner', 'explore', 'updates', 'account'];
 function renderNav(active) {
   const link = ([r, l, ic]) => `<a href="#/${r}" ${active === r ? 'aria-current="page"' : ''}>${icon(ic)}<span>${l}</span></a>`;
   $('#nav').innerHTML = S.user ? [...NAV, ...(S.isAdmin ? [['admin', S.pending ? `Admin (${S.pending})` : 'Admin', 'shield']] : [])].map(link).join('') : '';
-  $('#tabbar').innerHTML = S.user ? NAV.filter((n) => TABS.includes(n[0])).map(link).join('') : '';
+  $('#tabbar').innerHTML = S.user ? TABS.map((t) => NAV.find((n) => n[0] === t)).map(link).join('') : '';
   $('#tabbar').style.display = S.user ? '' : 'none';
   $('#side-ad').innerHTML = S.user ? adBlock('side') : '';
 }
@@ -577,9 +578,10 @@ async function Auth(main) {
 /* =========================================================
    HOME
    ========================================================= */
-const HOME_MOODS = [['all', '✨ All'], ['desert', '🏜️ Desert'], ['safari', '🦁 Safari'], ['coast', '🌊 Coast'], ['city', '🏙️ Towns'], ['events', '🎉 Events']];
+const HOME_MOODS = [['all', 'Must-see'], ['gems', 'Hidden gems'],['desert', '🏜️ Desert'], ['safari', '🦁 Safari'], ['coast', '🌊 Coast'], ['city', '🏙️ Towns'], ['events', '🎉 Events']];
 const HOME_PICKS = {
   all: [['Sossusvlei', 'Hardap · red dunes'], ['Etosha National Park', 'Oshikoto · big game'], ['Swakopmund', 'Erongo · coast'], ['Fish River Canyon', '//Karas · hiking'], ['Ruacana Falls', 'Omusati · waterfall'], ['Epupa Falls', 'Kunene · river']],
+  gems: [['Quiver Tree Forest', 'Keetmanshoop · aloe giants'], ['Hoba Meteorite', 'Grootfontein · biggest on Earth'], ['Lake Otjikoto', 'Tsumeb · sinkhole lake'], ['Moon Landscape', 'Swakopmund · lunar valleys'], ['Sesriem Canyon', 'Sossusvlei · narrow gorge']],
   desert: [['Sossusvlei', 'Red dunes & Deadvlei'], ['Kolmanskop', 'Ghost town in the sand'], ['Spitzkoppe', 'Granite peaks'], ['Brandberg', 'Rock art'], ['Twyfelfontein', 'Ancient engravings']],
   safari: [['Etosha National Park', 'Lions, elephants, rhinos'], ['Bwabwata National Park', 'River wildlife'], ['Waterberg Plateau Park', 'Plateau walks'], ['Nkasa Rupara National Park', 'Wetland safaris'], ['Khaudum National Park', 'Wild & remote']],
   coast: [['Swakopmund', 'Adventure capital'], ['Walvis Bay', 'Flamingos & dolphins'], ['Lüderitz', 'Colonial harbour town'], ['Cape Cross Seal Reserve', 'Huge seal colony'], ['Henties Bay', 'Fishing & quiet beaches']],
@@ -597,17 +599,18 @@ async function Home(main) {
   const greet = hr < 12 ? 'Good morning' : hr < 18 ? 'Good afternoon' : 'Good evening';
   const town = (S.profile.residential_address || '').split(',').map((x) => x.trim()).filter(Boolean).slice(-2, -1)[0] || S.profile.home_country || '';
   const upcoming = trips.filter((t) => t.start_date && t.start_date >= today).slice(0, 4);
+  const hero = await import('./home-hero.js');
   main.innerHTML = `
   <header class="home-head reveal">
     <div><span class="small muted">📍 ${esc(town || 'Somewhere wonderful')}${tier() !== 'free' ? ` · <b style="color:var(--accent-dark)">${tier() === 'pro' ? 'PRO' : 'PREMIUM'} ✨</b>` : ''}</span>
-      <h1>${greet}${first ? `, ${esc(first)}` : ''} 👋</h1></div>
+      <p class="greet">${greet}${first ? `, ${esc(first)}` : ''}</p></div>
     <div class="row"><a class="badge" href="#/account?tab=tokens" style="text-decoration:none">🪙 ${bal}</a><a class="me" href="#/account" aria-label="Your account">${esc((first || 'Y')[0].toUpperCase())}</a></div>
   </header>
-  <form class="searchbar reveal" id="hsearch" role="search"><span aria-hidden="true">🔎</span><label class="sr" for="hq">Search a place</label><input id="hq" placeholder="Where to next? Try Etosha, Swakop or Zanzibar" autocomplete="off"><button class="btn small primary">Go</button></form>
-  <div class="chips mood reveal" id="moods" aria-label="Moods">${HOME_MOODS.map(([k, l], i) => `<button class="chip" data-mood="${k}" aria-pressed="${i === 0}">${l}</button>`).join('')}</div>
-  <a class="ready-strip reveal" href="#/ready"><span aria-hidden="true">✅</span><span><b>Ready to Go?</b> Your trip score, checklist and Namibia must-knows</span><span aria-hidden="true">→</span></a>
-  <section class="section" style="margin-top:6px"><div class="row between"><h2>Picked for you</h2><a href="#/explore-na">All of Namibia →</a></div>
+  ${hero.heroHtml(esc, S.profile.home_country_code === 'ZA' ? 'South Africa' : 'Namibia')}
+  <section class="section" style="margin-top:14px"><div class="row between"><h2 id="recsh">Must-see today</h2><a href="#/explore-na">See all →</a></div>
+    <div class="chips mood" id="moods" aria-label="Moods">${HOME_MOODS.map(([k, l], i) => `<button class="chip" data-mood="${k}" aria-pressed="${i === 0}">${l}</button>`).join('')}</div>
     <div class="rail" id="recs"></div></section>
+  <a class="ready-strip reveal" href="#/ready"><span aria-hidden="true">✅</span><span><b>Ready to Go?</b> Your trip score, checklist and Namibia must-knows</span><span aria-hidden="true">→</span></a>
   <div class="hero">
     <section class="card night stack" aria-label="Quick convert">
       <div class="row between"><h2 style="color:var(--on-dark)">💱 Convert</h2><span class="small" style="color:var(--on-dark-muted)" id="ratedate"></span></div>
@@ -658,7 +661,8 @@ async function Home(main) {
       try { const w = await api.wiki(name.replace(/ \(.*\)$/, '') + ' Namibia'); const el = box.querySelector(`[data-rec="${CSS.escape(name)}"] .ph`); if (el && w?.img) el.style.backgroundImage = `url('${w.img.replace(/'/g, '%27')}')`; } catch { /* keep plain */ }
     });
   };
-  $$('[data-mood]').forEach((b) => b.onclick = () => { $$('[data-mood]').forEach((x) => x.setAttribute('aria-pressed', String(x === b))); recs(b.dataset.mood); });
+  hero.mountHero(main);
+  $$('[data-mood]').forEach((b) => b.onclick = () => { $$('[data-mood]').forEach((x) => x.setAttribute('aria-pressed', String(x === b))); $('#recsh').textContent = b.dataset.mood === 'all' ? 'Must-see today' : b.textContent.replace(/^\W+\s*/, ''); recs(b.dataset.mood); });
   recs('all');
   (async () => {
     try {
@@ -1063,22 +1067,21 @@ async function JournalEntry(main, id) {
   const step = (x, dir) => `<a class="rope-step ${dir}" href="#/journal/${esc(x.id)}"><span class="knot" aria-hidden="true"><b>${dir === 'newer' ? '↑' : '↓'}</b></span>
     <span><small>${dir === 'newer' ? 'Newer memory' : 'Older memory'}</small><b>${esc(x.title)}</b><small>${esc(x.place_name || '')}</small></span></a>`;
   main.innerHTML = `
-  <header class="memory-hero${urls[0] ? '' : ' no-photo'}" style="${urls[0] ? `background-image:url('${esc(urls[0])}')` : ''}">
-    <a class="hero-back" href="#/${mine ? 'journal' : 'explore'}">${mine ? 'Back to your journey' : 'Back to Explore'}</a>
-    <div class="hero-text">
-      <span class="hero-place">${esc(e.place_name || 'Somewhere on the road')}${e.visited_on ? `, ${esc(fmtDate(e.visited_on))}` : ''}</span>
-      <h1>${esc(e.title)}</h1>
-      ${mine ? '' : `<span class="hero-by">By <b>${esc(name(author))}</b>${author?.home_country ? ` from ${esc(author.home_country)}` : ''}</span>`}
-    </div>
-    <div class="row wrap hero-actions">${mine ? '<button class="btn" id="jedit">Edit</button><button class="btn ghost" id="jdel">Delete</button>'
-      : `<a class="btn dark" href="#/messages?to=${e.user_id}">${icon('chat', 16)} Message</a><button class="btn ghost" id="jrep">Report</button>`}</div>
+  <header class="mem-head">
+    <a class="hero-back" href="#/${mine ? 'journal' : 'explore'}">← ${mine ? 'Your journey' : 'Explore'}</a>
+    <div class="row wrap" style="gap:8px">${mine ? '<button class="btn small ghost" id="jedit">Edit</button><button class="btn small ghost" id="jdel">Delete</button>'
+      : `<a class="btn small dark" href="#/messages?to=${e.user_id}">${icon('chat', 16)} Message</a><button class="btn small ghost" id="jrep">Report</button>`}</div>
   </header>
-  ${newer || older ? `<nav class="rope-nav" aria-label="Along your rope">${newer ? step(newer, 'newer') : ''}${older ? step(older, 'older') : ''}</nav>` : ''}
-  <div class="grid g2" style="align-items:start">
-    <section class="photos">${urls.map((u, i) => `<button class="ph" data-view="${i}" style="background-image:url('${esc(u)}')" aria-label="Open photo ${i + 1}"></button>`).join('') || '<div class="empty" style="grid-column:1/-1">No photos</div>'}</section>
+  <div class="mem-title">
+    <span class="eyebrow">${e.visited_on ? esc(fmtDate(e.visited_on)) : 'A memory'}${mine ? ` · ${e.is_public ? 'Public' : 'Only me'}` : ''}</span>
+    <h1>${esc(e.title)}</h1>
+    ${e.rating ? `<span class="mem-stars" aria-label="${e.rating} out of 5 stars">${'★'.repeat(e.rating)}<span>${'★'.repeat(5 - e.rating)}</span></span>` : ''}
+    ${mine ? '' : `<span class="hero-by">By <b>${esc(name(author))}</b>${author?.home_country ? ` from ${esc(author.home_country)}` : ''}</span>`}
+  </div>
+  <div class="grid g2 mem-grid" style="align-items:start">
+    <section id="memshow"></section>
     <section class="stack">
-      <div class="card stack">${e.rating ? `<span style="color:var(--accent);font-size:22px">${'★'.repeat(e.rating)}<span style="color:#D6D2CA">${'★'.repeat(5 - e.rating)}</span></span>` : ''}
-        <p style="margin:0;white-space:pre-wrap">${esc(e.story || 'No story yet.')}</p>${mine ? `<span class="badge">${e.is_public ? 'Public' : 'Only me'}</span>` : ''}</div>
+      ${newer || older ? `<nav class="rope-nav" aria-label="Along your rope">${newer ? step(newer, 'newer') : ''}${older ? step(older, 'older') : ''}</nav>` : ''}
       <div class="card"><h2>People met</h2>${(e.people || []).map((p) => `<div class="person"><span class="avatar">${esc((p.name || '?')[0].toUpperCase())}</span><span style="flex:1"><b>${esc(p.name)}</b><br><span class="small muted">From ${esc(p.from_country || 'unknown')}</span></span>${p.username ? `<span class="badge ok">@${esc(p.username)}</span>` : '<span class="badge">Not on the app</span>'}</div>`).join('') || '<p class="muted">Nobody added.</p>'}</div>
       ${e.lat != null && mine ? `<a class="btn ghost" href="#/map">See on my map</a>` : ''}
       <div class="card stack" id="comments"><h2>Comments (${comments.length})</h2>
@@ -1090,7 +1093,11 @@ async function JournalEntry(main, id) {
       </div>
     </section>
   </div>`;
-  $$('[data-view]').forEach((b) => b.onclick = () => viewer(urls, +b.dataset.view));
+  const ask = () => new Promise((res) => modal(`<h2>Who is this?</h2><form class="stack" id="askf" style="margin-top:12px"><label class="sr" for="aski">Their username</label><input class="input" id="aski" placeholder="@username" maxlength="21" autocapitalize="none" autocomplete="off"><div class="row"><button class="btn primary" style="flex:1">Tag</button><button type="button" class="btn ghost" data-close>Cancel</button></div></form>`, (p, close) => {
+    $('#aski', p).focus(); $('#askf', p).onsubmit = (ev) => { ev.preventDefault(); const v = $('#aski', p).value; close(); res(v); };
+  }));
+  const { mountMemory } = await import('./journal-memory.js');
+  cleanup = mountMemory($('#memshow'), { e, urls, mine, api, esc, toast, ask, findTraveller: (u) => (DEMO ? Promise.resolve({ display_name: u, home_country: '' }) : api.findTraveller(u)), rerender: render });
   if (mine) {
     $('#jedit').onclick = () => editEntry(e);
     $('#jdel').onclick = async () => { if (confirm('Delete this entry and its photos?')) { await api.remove('journal_entries', id); location.hash = '#/journal'; } };
@@ -1163,7 +1170,11 @@ function editEntry(e = null) {
         ...st.newFiles.map((f, i) => `<div class="ph" style="background-image:url('${esc(f.url)}')"><button type="button" data-rm="n${i}" aria-label="Remove photo">✕</button></div>`),
         total < 6 ? `<label class="add">${icon('plus', 22)}Add<input type="file" accept="image/*" multiple hidden id="phin"></label>` : '',
       ].join('');
-      $$('[data-rm]', p).forEach((b) => b.onclick = () => { const k = b.dataset.rm; if (k[0] === 'o') { st.photos.splice(+k.slice(1), 1); urls.splice(+k.slice(1), 1); } else st.newFiles.splice(+k.slice(1), 1); drawPhotos(); });
+      $$('[data-rm]', p).forEach((b) => b.onclick = () => { const k = b.dataset.rm; if (k[0] === 'o') {
+        const j = +k.slice(1); st.photos.splice(j, 1); urls.splice(j, 1);
+        // keep photo tags on the right photo: drop this photo's tags, shift later ones down
+        st.people = st.people.filter((x) => x.photo !== j).map((x) => (x.photo > j ? { ...x, photo: x.photo - 1 } : x));
+      } else st.newFiles.splice(+k.slice(1), 1); drawPhotos(); });
       const inp = $('#phin', p);
       if (inp) inp.onchange = async () => {
         const room = 6 - st.photos.length - st.newFiles.length;
@@ -1432,8 +1443,10 @@ async function Explore(main) {
   // one story circle per traveller (their latest public entries)
   const byUser = []; for (const e of feed) { let g = byUser.find((x) => x.uid === e.user_id); if (!g) byUser.push(g = { uid: e.user_id, entries: [] }); g.entries.push(e); }
   main.innerHTML = `
-  <header class="rope-head"><div><h1>Travellers’ journeys</h1><p>Every traveller hangs from the rope. Pull one to watch their trip, then react, comment or say hi.</p></div>
-    <a class="btn ghost" href="#/account?tab=tokens">${icon('gift', 18)} Invite friends</a></header>
+  <header class="ex-head"><div><span class="eyebrow">Explore</span><h1>Where travellers go</h1></div>
+    <div class="row wrap" style="gap:8px"><a class="btn small ghost" href="#/journal">${icon('journal', 16)} My journey</a><a class="btn small ghost" href="#/messages">${icon('chat', 16)} Chats</a><a class="btn small ghost" href="#/account?tab=tokens">${icon('gift', 16)} Invite</a></div></header>
+  <section id="exmap" class="ex"></section>
+  <div class="row between" style="margin-top:22px"><h2>Travellers’ journeys</h2></div>
   ${byUser.length ? `<div class="story-bar" role="list" aria-label="Traveller stories">${byUser.map((g, i) => { const a = people[g.uid]; const cov = urlOf[g.entries.find((e) => e.photos?.length)?.photos?.[0]]; return `<button class="story-ring reveal" style="--i:${i}" data-story="${i}" role="listitem" aria-label="Watch ${esc(name(a))}'s journey">
       <span class="ring"><span class="face" style="${cov ? `background-image:url('${esc(cov)}')` : ''}">${cov ? '' : esc(name(a)[0].toUpperCase())}</span></span><span class="small">${esc(name(a).split(' ')[0].slice(0, 10))}</span></button>`; }).join('')}</div>` : ''}
   ${feed.length ? `<div class="journey-feed">${feed.map((e, i) => { const a = people[e.user_id]; const cov = urlOf[e.photos?.[0]]; return `<article class="journey reveal" style="--i:${i % 8}">
@@ -1448,6 +1461,9 @@ async function Explore(main) {
   const slidesFor = (entries) => entries.flatMap((e) => ((e.photos || []).length ? e.photos.slice(0, 6).map((ph) => ({ e, img: urlOf[ph] })) : [{ e, img: '' }]));
   $$('[data-story]').forEach((b) => b.onclick = () => { const g = byUser[+b.dataset.story]; storyPlayer(slidesFor(g.entries), name(people[g.uid])); });
   $$('[data-play]').forEach((b) => b.onclick = () => { const e = feed[+b.dataset.play]; storyPlayer(slidesFor([e]), name(people[e.user_id])); });
+  // Map with travellers' photo pins, town zoom, "what are you looking for" and place windows (explore-map.js)
+  const { mountExploreMap } = await import('./explore-map.js');
+  cleanup = await mountExploreMap($('#exmap'), { esc, api, loadMapLib, placeSearch, modal, reviewSheet, feed, people, urlOf });
   // Venmo-style emoji reactions under every journey
   const REACTS = ['❤️', '🔥', '😍', '👏', '🌍', '😂'];
   const all = await api.reactions(feed.map((e) => e.id)).catch(() => []);
