@@ -2,12 +2,13 @@
 // SpeedCurrency web app (MVP). Plain JavaScript, no build step.
 // Backend: Supabase (auth, database, photo storage, server functions). Without settings it runs in demo mode.
 import { attachCurrencyPicker, codeOf } from './currency-picker.js';
+import { newsCover } from './news-cover.js';
 const C = window.SC_CONFIG || {};
 const DEMO = !C.SUPABASE_URL || !C.SUPABASE_ANON_KEY;
 let sb = null;
 if (!DEMO) {
   const { createClient } = await import('https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm');
-  sb = createClient(C.SUPABASE_URL, C.SUPABASE_ANON_KEY);
+  sb = createClient(C.SUPABASE_URL, C.SUPABASE_ANON_KEY, { global: { fetch: (...a) => window.fetch(...a) } }); // late-bound so busy buttons see it
 }
 
 /* ---------- helpers ---------- */
@@ -472,6 +473,16 @@ function route() {
   return { name, id, q: new URLSearchParams(query || '') };
 }
 let cleanup = null;
+// Busy buttons: a button that starts network work shows a spinner and can't be double-tapped until it finishes.
+(() => {
+  const f0 = window.fetch.bind(window); const n = new WeakMap(); let last = null, at = 0;
+  document.addEventListener('click', (e) => { const b = e.target.closest('button, .btn, .chip'); if (b && !b.closest('.maplibregl-ctrl, .sw-btns')) { last = b; at = performance.now(); } }, true);
+  window.fetch = (...a) => {
+    const b = last && performance.now() - at < 600 ? last : null;
+    if (b) { n.set(b, (n.get(b) || 0) + 1); b.classList.add('is-busy'); b.setAttribute('aria-busy', 'true'); }
+    return f0(...a).finally(() => { if (!b) return; const k = (n.get(b) || 1) - 1; n.set(b, k); if (k <= 0) { b.classList.remove('is-busy'); b.removeAttribute('aria-busy'); } });
+  };
+})();
 // Journey Pulse (journey-pulse.js): XP, streak, quests. Any code can report an action with pulse(kind).
 let pulseReady = null;
 const pulse = (kind, meta) => pulseReady?.then(() => window.dispatchEvent(new CustomEvent('sc:pulse', { detail: { kind, meta } })));
@@ -480,10 +491,13 @@ async function render() {
   const main = $('#main');
   if (!S.user && r.name !== 'auth') { location.hash = '#/auth'; return; }
   if (S.user && r.name === 'auth') { location.hash = '#/'; return; }
+  // Floating assistant + in-app news sheets (chat-fab.js), hidden on the Assistant page itself
+  if (S.user && window.scAskUid !== S.user.id) { window.scAskUid = S.user.id; import('./chat-fab.js').then((m) => m.mountFab({ api, esc, md, DEMO, uid: S.user.id })).catch(() => {}); }
+  document.body.classList.toggle('no-fab', !S.user || ['planner', 'auth'].includes(r.name));
   if (S.user && !pulseReady) pulseReady = import('./journey-pulse.js').then((m) => { m.startPulse(S.user.id); return m; }).catch(() => null);
   if (['ready', 'updates', 'explore'].includes(r.name)) pulse(r.name);
   renderNav(r.name === 'auth' ? null : r.name);
-  const views = { '': Home, planner: Planner, trips: Trips, map: MapView, journal: Journal, album: Album, explore: Explore, messages: Messages, account: Account, admin: Admin, updates: Updates, 'explore-na': Namibia, ready: async (m) => (await import('./ready.js')).Ready(m, { esc }), auth: Auth };
+  const views = { '': Home, planner: Planner, trips: Trips, map: MapView, journal: Journal, album: Album, explore: Explore, messages: Messages, account: Account, admin: Admin, updates: Updates, 'explore-na': Namibia, ready: async (m) => (await import('./ready.js')).Ready(m, { esc }), u: async (m, rr) => { cleanup = await (await import('./profile.js')).Profile(m, rr, { esc, api, sb, S, DEMO, modal, toast, reportFlow, premium, fmtDate }); }, trends: async (m) => (await import('./trends.js')).Trends(m, { esc, api, placeSearch, tier, modal, icon, gmaps, ago }), town: async (m, rr) => (await import('./town-guide.js')).TownGuide(m, rr, { esc, api, placeSearch, tier, modal, icon, gmaps, ago }), auth: Auth };
   const view = views[r.name] || Home;
   try { cleanup?.(); } catch { /* ignore */ } cleanup = null;
   main.innerHTML = '<div class="skeleton"><span></span><span></span><span></span></div>';
@@ -612,7 +626,7 @@ async function Home(main) {
     <div class="row"><a class="badge" href="#/account?tab=tokens" style="text-decoration:none">🪙 ${bal}</a><a class="me" href="#/account" aria-label="Your account">${esc((first || 'Y')[0].toUpperCase())}</a></div>
   </header>
   ${hero.heroHtml(esc, S.profile.home_country_code === 'ZA' ? 'South Africa' : 'Namibia')}
-  <section class="pulse card reveal" id="pulse" aria-label="Journey pulse"></section>
+  <section class="pulse card reveal" id="pulse" aria-label="Journey pulse"></section><a class="tr-teaser card reveal" href="#/trends"><span class="eyebrow">What’s popping</span><b>Hot spots, next summer & the economy</b><span class="small">Gqeberha · Knysna · Walvis Bay · safety tips →</span></a>
   <section class="section" style="margin-top:14px"><div class="row between"><h2 id="recsh">Must-see today</h2><a href="#/explore-na">See all →</a></div>
     <div class="chips mood" id="moods" aria-label="Moods">${HOME_MOODS.map(([k, l], i) => `<button class="chip" data-mood="${k}" aria-pressed="${i === 0}">${l}</button>`).join('')}</div>
     <div class="rail" id="recs"></div></section>
@@ -1450,13 +1464,14 @@ async function Explore(main) {
   const byUser = []; for (const e of feed) { let g = byUser.find((x) => x.uid === e.user_id); if (!g) byUser.push(g = { uid: e.user_id, entries: [] }); g.entries.push(e); }
   main.innerHTML = `
   <header class="ex-head"><div><span class="eyebrow">Explore</span><h1>Where travellers go</h1></div>
-    <div class="row wrap" style="gap:8px"><a class="btn small ghost" href="#/journal">${icon('journal', 16)} My journey</a><a class="btn small ghost" href="#/messages">${icon('chat', 16)} Chats</a><a class="btn small ghost" href="#/account?tab=tokens">${icon('gift', 16)} Invite</a></div></header>
+    <div class="row wrap" style="gap:8px"><a class="btn small ghost" href="#/u/${esc(S.user.id)}">${icon('journal', 16)} My profile</a><a class="btn small ghost" href="#/messages">${icon('chat', 16)} Chats</a><a class="btn small ghost" href="#/account?tab=tokens">${icon('gift', 16)} Invite</a></div></header>
+  <section id="exfind" class="ex-find" aria-label="Find a town"></section>
   <section id="exmap" class="ex"></section>
   <div class="row between" style="margin-top:22px"><h2>Travellers’ journeys</h2></div>
   ${byUser.length ? `<div class="story-bar" role="list" aria-label="Traveller stories">${byUser.map((g, i) => { const a = people[g.uid]; const cov = urlOf[g.entries.find((e) => e.photos?.length)?.photos?.[0]]; return `<button class="story-ring reveal" style="--i:${i}" data-story="${i}" role="listitem" aria-label="Watch ${esc(name(a))}'s journey">
       <span class="ring"><span class="face" style="${cov ? `background-image:url('${esc(cov)}')` : ''}">${cov ? '' : esc(name(a)[0].toUpperCase())}</span></span><span class="small">${esc(name(a).split(' ')[0].slice(0, 10))}</span></button>`; }).join('')}</div>` : ''}
   ${feed.length ? `<div class="journey-feed">${feed.map((e, i) => { const a = people[e.user_id]; const cov = urlOf[e.photos?.[0]]; return `<article class="journey reveal" style="--i:${i % 8}">
-      <header class="row between"><span class="row"><span class="avatar">${esc(name(a)[0].toUpperCase())}</span><span><b>${esc(name(a))}</b><br><span class="small muted">📍 ${esc(e.place_name || 'Somewhere wonderful')}${a?.home_country ? ' · from ' + esc(a.home_country) : ''}</span></span></span><span class="small muted">${ago(e.created_at)}</span></header>
+      <header class="row between"><span class="row"><span class="avatar">${esc(name(a)[0].toUpperCase())}</span><span><a class="pf-name" href="#/u/${esc(e.user_id)}"><b>${esc(name(a))}</b></a><br><span class="small muted">📍 ${esc(e.place_name || 'Somewhere wonderful')}${a?.home_country ? ' · from ' + esc(a.home_country) : ''}</span></span></span><span class="small muted">${ago(e.created_at)}</span></header>
       <a href="#/journal/${e.id}" class="jphoto" style="${cov ? `background-image:url('${esc(cov)}')` : ''}" aria-label="Open ${esc(e.title)}">${cov ? '' : '<span>📔</span>'}${(e.photos || []).length > 1 ? `<span class="count">📸 ${e.photos.length}</span>` : ''}</a>
       <div class="stack" style="gap:6px;padding:12px 14px 14px"><div class="row between"><h2 style="font-size:20px">${esc(e.title)}</h2>${e.rating ? `<span class="small" style="color:var(--accent)">${'★'.repeat(e.rating)}</span>` : ''}</div>
         <p class="small" style="margin:0">${esc((e.story || '').slice(0, 180))}${(e.story || '').length > 180 ? '…' : ''}</p>
@@ -1468,6 +1483,7 @@ async function Explore(main) {
   $$('[data-story]').forEach((b) => b.onclick = () => { const g = byUser[+b.dataset.story]; storyPlayer(slidesFor(g.entries), name(people[g.uid])); });
   $$('[data-play]').forEach((b) => b.onclick = () => { const e = feed[+b.dataset.play]; storyPlayer(slidesFor([e]), name(people[e.user_id])); });
   // Map with travellers' photo pins, town zoom, "what are you looking for" and place windows (explore-map.js)
+  (await import('./town-finder.js')).mountTownFinder($('#exfind'), { esc, api, placeSearch, tier, modal, icon, gmaps, ago });
   const { mountExploreMap } = await import('./explore-map.js');
   cleanup = await mountExploreMap($('#exmap'), { esc, api, loadMapLib, placeSearch, modal, reviewSheet, feed, people, urlOf });
   // Venmo-style emoji reactions under every journey
@@ -1662,12 +1678,12 @@ async function Updates(main, r) {
       const items = res.items || [];
       if (!items.length) { box.innerHTML = `<div class="notice">No ${st.topic === 'all' ? '' : esc(NEWS_TOPICS.find(([k]) => k === st.topic)[1].toLowerCase()) + ' '}news about <b>${esc(st.place)}</b> ${esc(span())}. Try a longer timeframe or a bigger place.</div>`; return; }
       const [lead, ...rest] = items;
-      const story = (x, i) => `<article class="story reveal" style="--i:${i}"><span class="kicker">${esc(x.source || 'News')} · ${ago(x.published)}</span>
+      const story = (x, i) => `<article class="story reveal" style="--i:${i}">${newsCover(x, st.place, esc)}<span class="kicker">${esc(x.source || 'News')} · ${ago(x.published)}</span>
         <a href="${esc(x.link)}" target="_blank" rel="noopener noreferrer"><h3>${esc(x.title)}</h3></a></article>`;
       const brief = res.brief ? `<div class="brief reveal"><span class="kicker">✨ Quick brief · AI summary</span><div class="md">${md(res.brief)}</div></div>`
         : !premium() ? `<a class="brief teaser reveal" href="#/account?tab=plans"><span class="kicker">✨ Quick brief</span><span>Get a friendly AI summary of every place's news with Premium.</span></a>` : '';
       box.innerHTML = brief + `<div class="row between small muted" style="margin-bottom:8px"><span>${items.length} stories · ${esc(st.place)} · ${esc(span())}</span><span>Updated ${ago(res.fetched_at)}${res.stale ? ' (offline copy)' : ''}</span></div>
-        <article class="lead reveal"><span class="kicker">${esc(lead.source || 'News')} · ${ago(lead.published)}</span><a href="${esc(lead.link)}" target="_blank" rel="noopener noreferrer"><h2>${esc(lead.title)}</h2></a>
+        <article class="lead reveal">${newsCover(lead, st.place, esc, true)}<span class="kicker">${esc(lead.source || 'News')} · ${ago(lead.published)}</span><a href="${esc(lead.link)}" target="_blank" rel="noopener noreferrer"><h2>${esc(lead.title)}</h2></a>
           <div class="row wrap"><a class="btn small dark" href="#/planner?q=${encodeURIComponent('What does this mean for travellers going to ' + st.place + ': ' + lead.title)}">${icon('planner', 16)} Ask the assistant</a></div></article>
         <div class="columns">${rest.map(story).join('')}</div>`;
     } catch (e) { if ($('#nlist')) box.innerHTML = `<div class="notice">${esc(e.message)}</div>`; }
@@ -1730,6 +1746,7 @@ const EXPLORE_CATS = {
 };
 const HOME_AFFAIRS = `<div class="card stack reveal"><h3>${'🛂'} Home Affairs (MHAISS)</h3>
   <p class="small muted" style="margin:0">Ministry of Home Affairs, Immigration, Safety and Security. IDs, passports, birth certificates, visas and permits.</p>
+  <button type="button" class="btn small ghost ask-nami" data-ask="How do I apply for or renew a passport or visa in Namibia? Short steps, costs and the official link." style="align-self:flex-start">✦ Ask Nami about passports & visas</button>
   <div class="list">
     <div class="row between"><span class="small">Head office</span><span class="small"><b>Cohen Building, cnr Kasino St & Independence Ave, Windhoek</b></span></div>
     <div class="row between"><span class="small">Switchboard</span><a class="small" href="tel:+264612922111"><b>+264 61 292 2111</b></a></div>
@@ -1747,6 +1764,7 @@ async function Namibia(main, r) {
       <div style="margin-top:16px">${HOME_AFFAIRS}</div>`;
     return;
   }
+  location.replace('#/town/' + encodeURIComponent(town.replace(/\s*\(.*\)$/, ''))); return; // the richer Town Guide (town-guide.js)
   const region = NA_REGIONS.find(([, , towns, parks]) => towns.includes(town) || parks.includes(town));
   const st = { cat: r.q.get('cat') || 'food', geo: null };
   main.innerHTML = `<a class="small" href="#/explore-na">← All regions</a>

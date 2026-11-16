@@ -4,7 +4,7 @@
 <body>
 <p><a href="./">← SpeedCurrency</a> · <a href="terms.html">Terms of Use</a></p>
 <h1>Privacy Policy</h1>
-<p class="muted">Last updated: 15 November 2026</p>
+<p class="muted">Last updated: 16 November 2026</p>
 
 <div class="box"><b>In short:</b> we only collect what the app needs to plan your trips, keep your journal and run your account. We never sell your data. Your journal is private unless you choose to share it. You can download or delete everything at any time from <b>Account</b>.</div>
 
@@ -17,9 +17,11 @@
 <tr><td>Email address and password (the password is stored only as a secure hash)</td><td>To create and secure your account.</td></tr>
 <tr><td>Name, username, short bio</td><td>To show your profile to people you interact with.</td></tr>
 <tr><td>Home country (detected once from your connection when you sign up)</td><td>To tailor documents, currency and travel rules. It cannot be changed afterwards.</td></tr>
-<tr><td>Residential address, nationality, passport issuing country and expiry date, preferred currency</td><td>So the assistant can check entry rules and warn you before your passport expires. <b>We never ask for or store passport numbers.</b></td></tr>
+<tr><td>Residential address, nationality, preferred currency</td><td>So the assistant can check entry rules and use your currency. <b>We no longer collect any passport details</b> (removed on 15 November 2026; earlier values were deleted).</td></tr>
 <tr><td>Emergency contact (optional)</td><td>Shown only to you, for your own reference while travelling.</td></tr>
 <tr><td>Trips, map pins, journal stories, photos and places</td><td>To provide the planner, map, journal and album.</td></tr>
+<tr><td>Location of public journal memories (the place and map point you choose)</td><td>To show your public memories as photo pins on the Explore map and in a place's "travellers who've been here". Private memories are never shown.</td></tr>
+<tr><td>Place reviews, review photos and emoji reactions (for example a ❤️ when you swipe right on a traveller's memory)</td><td>To show reviews on places and reactions on journeys. Reviews and reactions are linked to your account and visible to other members.</td></tr>
 <tr><td>Questions you ask the assistant and its answers</td><td>To answer you and keep your chat history.</td></tr>
 <tr><td>Messages and comments</td><td>To deliver them to the people you choose.</td></tr>
 <tr><td>Payment records: plan, amount, payment reference, proof-of-payment file you upload</td><td>To confirm your EFT payment, activate your plan and keep records required by tax law. We never see or store card details or bank login details.</td></tr>
@@ -33,11 +35,16 @@
 <p>We use trusted service providers who process data only to run SpeedCurrency:</p>
 <ul>
 <li><b>Supabase</b> – database, file storage and sign-in (servers in London, United Kingdom).</li>
-<li><b>Google Gemini or Anthropic Claude</b> – generates assistant answers. Your question, plus the profile details needed to tailor the answer (home country, nationality, passport country and expiry, preferred currency), is sent to the AI provider for each answer. While we use Google's free Gemini service, Google may use these questions and answers to improve its products, so please don't include private details in assistant questions.</li>
+<li><b>Google Gemini or Anthropic Claude</b> – generates assistant answers. Your question, plus the profile details needed to tailor the answer (home country, nationality, preferred currency), is sent to the AI provider for each answer. While we use Google's free Gemini service, Google may use these questions and answers to improve its products, so please don't include private details in assistant questions.</li>
 <li><b>Google AdSense</b> – shows ads to Free-plan users (see section 6).</li>
 <li><b>GoatCounter</b> – privacy-friendly visitor counts.</li>
 <li><b>GitHub Pages</b> – hosts the website files.</li>
 <li><b>OpenFreeMap, OpenStreetMap / Photon and Overpass</b> – map tiles, place search and nearby places. The places you search are sent to these services.</li>
+<li><b>Wikipedia, Wikivoyage and Wikimedia Commons</b> – town stories, travel guides and photos of places. The town name or the map point of the place you open is sent to them.</li>
+<li><b>Open-Meteo</b> – weather for featured towns (only town coordinates are sent, never your own location).</li>
+<li><b>Your device's location</b> – only if you tap the "locate me" button on a map and allow it. It is used on your device to centre the map and is not stored.</li>
+<li><b>Voice search</b> – if you tap the microphone, your browser's own speech service (for example Google in Chrome) turns your voice into text. We receive only the text.</li>
+<li><b>Have I Been Pwned</b> – when you choose a new password, only the first 5 characters of a scrambled (hashed) version are sent to check for leaked passwords. Your password never leaves your device.</li>
 <li><b>Google News</b> – the Updates newspaper. The place and topic you search for are sent to Google News to find articles.</li>
 <li><b>Currency rate feed</b> – exchange rates (no personal data is sent).</li>
 </ul>
@@ -61,7 +68,7 @@
 </ul>
 
 <h2>6. Cookies, local storage and ads</h2>
-<p>The app stores your sign-in session and small preferences in your browser's local storage so you stay signed in. Free-plan users see ads from Google AdSense. Google and its partners may use cookies to show and measure ads. Visitors in the EEA, UK and Switzerland are asked for consent through Google's consent message before personalised ads are shown. You can manage ad personalisation at <a href="https://adssettings.google.com" rel="noopener">Google Ad Settings</a> and read <a href="https://policies.google.com/technologies/partner-sites" rel="noopener">how Google uses data from sites that use its services</a>. Premium and Pro users see no ads.</p>
+<p>The app stores your sign-in session and small preferences in your browser's local storage so you stay signed in. It also keeps your Journey Pulse progress (XP, streak, quests, badges) and your ♥ Saved places only on your device; they are not sent to us and are removed if you clear your browser data. Free-plan users see ads from Google AdSense. Google and its partners may use cookies to show and measure ads. Visitors in the EEA, UK and Switzerland are asked for consent through Google's consent message before personalised ads are shown. You can manage ad personalisation at <a href="https://adssettings.google.com" rel="noopener">Google Ad Settings</a> and read <a href="https://policies.google.com/technologies/partner-sites" rel="noopener">how Google uses data from sites that use its services</a>. Premium and Pro users see no ads.</p>
 
 <h2>7. Your rights</h2>
 <p>You can, at any time:</p>

@@ -3,6 +3,13 @@
 // Swipe right (or ♥) = yes, swipe left (or ✕) = skip, tap the card (or i) = open its window.
 // Cards: { id, img, title, sub, tags[], badge, data }. Photos can arrive later through loadImg(card).
 
+/** Makes a photo address safe for CSS url(): only https, blob or data images, with risky characters encoded. */
+export const safeImg = (u) => {
+  u = String(u || '');
+  if (!/^(https:|blob:|data:image\/)/i.test(u)) return '';
+  return u.replace(/["'()\\\s<>]/g, (ch) => '%' + ch.charCodeAt(0).toString(16).toUpperCase().padStart(2, '0'));
+};
+
 export function mountSwipe(el, { cards, esc, onYes, onNo, onOpen, loadImg, empty, yesLabel = 'Save', noLabel = 'Skip' }) {
   let i = 0;
   const still = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
@@ -14,7 +21,7 @@ export function mountSwipe(el, { cards, esc, onYes, onNo, onOpen, loadImg, empty
     </div>`;
   const stack = el.querySelector('.sw-stack');
 
-  const cardHtml = (c, k) => `<article class="sw-card" data-k="${k}" style="${c.img ? `background-image:url('${esc(c.img)}')` : ''}" tabindex="${k === i ? 0 : -1}" aria-label="${esc(c.title)}">
+  const cardHtml = (c, k) => `<article class="sw-card" data-k="${k}" style="${safeImg(c.img) ? `background-image:url('${esc(safeImg(c.img))}')` : ''}" tabindex="${k === i ? 0 : -1}" aria-label="${esc(c.title)}">
       ${c.img ? '' : `<span class="sw-ph" aria-hidden="true">${esc(c.icon || '✦')}</span>`}
       ${c.badge ? `<span class="sw-badge">${esc(c.badge)}</span>` : ''}
       <span class="sw-stamp yes" aria-hidden="true">${esc(yesLabel)}</span><span class="sw-stamp no" aria-hidden="true">${esc(noLabel)}</span>
@@ -29,35 +36,39 @@ export function mountSwipe(el, { cards, esc, onYes, onNo, onOpen, loadImg, empty
     stack.innerHTML = left.map((c, n) => cardHtml(c, i + n)).reverse().join('');
     stack.querySelectorAll('.sw-card').forEach((c) => { const n = +c.dataset.k - i; c.style.setProperty('--n', n); });
     // fetch photos for the top cards that don't have one yet
-    left.forEach((c, n) => { if (!c.img && !c.tried && loadImg) { c.tried = true; loadImg(c).then((u) => { if (u) { c.img = u; const node = stack.querySelector(`[data-k="${i + n}"]`); if (node) { node.style.backgroundImage = `url('${u.replace(/'/g, '%27')}')`; node.querySelector('.sw-ph')?.remove(); } } }).catch(() => {}); } });
-    drag(stack.querySelector(`[data-k="${i}"]`));
+    left.forEach((c, n) => { if (!c.img && !c.tried && loadImg) { c.tried = true; loadImg(c).then((u) => { u = safeImg(u); if (u) { c.img = u; const node = stack.querySelector(`[data-k="${i + n}"]`); if (node) { node.style.backgroundImage = `url('${u}')`; node.querySelector('.sw-ph')?.remove(); } } }).catch(() => {}); } });
+    const top = stack.querySelector(`[data-k="${i}"]`); drag(top);
+    if (focusNext) { focusNext = false; top?.focus({ preventScroll: true }); }
   };
+  let focusNext = false;
 
   const go = (dir) => {
     const c = cards[i]; const node = stack.querySelector(`[data-k="${i}"]`); if (!c || !node) return;
     node.classList.add('gone'); node.style.transition = still ? 'none' : 'transform .35s ease-out, opacity .35s';
     node.style.transform = `translate(${dir * 140}%, -4%) rotate(${dir * 24}deg)`; node.style.opacity = '0';
-    i++; setTimeout(paint, still ? 0 : 260);
+    focusNext = el.contains(document.activeElement); i++; setTimeout(paint, still ? 0 : 260);
     if (dir > 0) onYes?.(c); else onNo?.(c);
   };
 
   function drag(node) {
     if (!node) return;
-    let x0 = null, y0 = 0, dx = 0, moved = false;
-    node.addEventListener('pointerdown', (e) => { x0 = e.clientX; y0 = e.clientY; dx = 0; moved = false; node.setPointerCapture(e.pointerId); node.style.transition = 'none'; });
+    let x0 = null, y0 = 0, dx = 0, moved = false, vertical = false;
+    node.addEventListener('pointerdown', (e) => { x0 = e.clientX; y0 = e.clientY; dx = 0; moved = false; vertical = false; node.setPointerCapture(e.pointerId); node.style.transition = 'none'; });
     node.addEventListener('pointermove', (e) => {
-      if (x0 == null) return; dx = e.clientX - x0; const dy = e.clientY - y0;
+      if (x0 == null || vertical) return; dx = e.clientX - x0; const dy = e.clientY - y0;
+      if (!moved && Math.abs(dy) > 10 && Math.abs(dy) > Math.abs(dx)) { vertical = true; return snap(); } // a scroll, not a swipe
       if (Math.abs(dx) > 6) moved = true;
-      node.style.transform = `translate(${dx}px, ${dy * 0.2}px) rotate(${dx / 18}deg)`;
+      node.style.transform = `translate(${dx}px, 0) rotate(${dx / 18}deg)`;
       node.style.setProperty('--yes', Math.max(0, Math.min(1, dx / 110))); node.style.setProperty('--no', Math.max(0, Math.min(1, -dx / 110)));
     });
-    const end = () => {
+    const snap = () => { node.style.transition = 'transform .3s cubic-bezier(.2,1.4,.4,1)'; node.style.transform = ''; node.style.setProperty('--yes', 0); node.style.setProperty('--no', 0); };
+    node.addEventListener('pointerup', () => {
       if (x0 == null) return; x0 = null;
+      if (vertical) return;
       if (Math.abs(dx) > 100) return go(Math.sign(dx));
-      node.style.transition = 'transform .3s cubic-bezier(.2,1.4,.4,1)'; node.style.transform = ''; node.style.setProperty('--yes', 0); node.style.setProperty('--no', 0);
-      if (!moved) onOpen?.(cards[i]);
-    };
-    node.addEventListener('pointerup', end); node.addEventListener('pointercancel', end);
+      snap(); if (!moved) onOpen?.(cards[i]);
+    });
+    node.addEventListener('pointercancel', () => { x0 = null; snap(); }); // cancelled: never opens or swipes
     node.addEventListener('keydown', (e) => { if (e.key === 'ArrowRight') go(1); if (e.key === 'ArrowLeft') go(-1); if (e.key === 'Enter') onOpen?.(cards[i]); });
   }
 

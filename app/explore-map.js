@@ -4,8 +4,10 @@
 // Tap a place for its "place window": photos of it, and the travellers who have been there.
 // Free sources only: OpenFreeMap tiles, Photon search, OpenStreetMap (Overpass), Wikimedia Commons.
 
+import { mountSwipe, safeImg } from './explore-swipe.js';
+
 const TOWNS = ['Windhoek', 'Swakopmund', 'Walvis Bay', 'Ondangwa', 'Oshakati', 'Rundu', 'Katima Mulilo', 'Lüderitz', 'Keetmanshoop', 'Cape Town', 'Johannesburg', 'Durban'];
-const CATS = [ // key, label, Overpass filters (';' separated), radius m
+export const CATS = [ // key, label, Overpass filters (';' separated), radius m
   ['food', 'Restaurants', 'nwr["amenity"~"^(restaurant|cafe|fast_food|bar|pub)$"]', 6000],
   ['fuel', 'Fuel & garages', 'nwr["amenity"="fuel"];nwr["shop"~"^(car_repair|tyres|car_parts)$"]', 8000],
   ['fun', 'Fun spots', 'nwr["leisure"~"^(water_park|amusement_arcade|bowling_alley|escape_game|miniature_golf)$"];nwr["amenity"~"^(cinema|nightclub|theatre)$"];nwr["tourism"="theme_park"]', 10000],
@@ -23,7 +25,7 @@ const km = (a, b) => { const r = (x) => x * Math.PI / 180; return 6371 * 2 * Mat
 const dist = (d) => (d < 1 ? `${Math.round(d * 1000)} m` : `${d.toFixed(1)} km`);
 const gmaps = (q) => `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(q)}`;
 
-async function overpass(c, cat) {
+export async function overpass(c, cat) {
   const [, , q, radius] = cat;
   const parts = q.split(';').map((x) => `${x}(around:${radius},${c.lat},${c.lng});`).join('');
   const body = 'data=' + encodeURIComponent(`[out:json][timeout:15];(${parts});out center 60;`);
@@ -61,7 +63,7 @@ export async function mountExploreMap(root, deps) {
       <label class="sr" for="exqi">Find a town</label><input id="exqi" placeholder="Find a town in Namibia or South Africa" autocomplete="off"><button class="btn small primary">Go</button></form>
     <div class="chips mood" id="extowns" aria-label="Towns">${TOWNS.map((t) => `<button type="button" class="chip" data-town="${esc(t)}">${esc(t)}</button>`).join('')}</div>
     <div class="ex-bar"><div class="seg" role="group" aria-label="View"><button type="button" data-v="swipe" aria-pressed="true">Swipe</button><button type="button" data-v="map" aria-pressed="false">Map</button></div>
-      <button type="button" class="chip" id="exsaved">♥ Saved <b>${saved().length}</b></button></div>
+      <a class="chip tg-link" id="exguide" hidden href="#/explore">📖 Guide</a><button type="button" class="chip" id="exsaved">♥ Saved <b>${saved().length}</b></button></div>
     <div class="ex-cats chips" id="excats" hidden aria-label="What are you looking for?">${CATS.map(([k, l]) => `<button type="button" class="chip" data-cat="${k}" aria-pressed="false">${esc(l)}</button>`).join('')}</div>
     <div class="sw" id="exdeck"></div>
     <div class="ex-map" hidden>
@@ -71,45 +73,51 @@ export async function mountExploreMap(root, deps) {
     <div class="rail ex-rail" id="exrail" aria-live="polite"></div>
     <p class="small muted">Map © OpenStreetMap contributors · tiles OpenFreeMap · photos Wikimedia Commons.</p>`;
 
-  await loadMapLib();
-  if (!window.maplibregl) { root.querySelector('#exmapc').innerHTML = '<p class="muted" style="padding:20px">The map could not load. Check your connection.</p>'; return () => {}; }
-  const map = new maplibregl.Map({ container: 'exmapc', style: 'https://tiles.openfreemap.org/styles/dark', bounds: [[11.5, -35.2], [33.2, -16.8]], attributionControl: { compact: true } });
+  await loadMapLib().catch(() => {});
+  let map = null;
+  if (!window.maplibregl) root.querySelector('#exmapc').innerHTML = '<p class="muted" style="padding:20px">The map could not load. Check your connection.</p>';
+  else {
+  map = new maplibregl.Map({ container: 'exmapc', style: 'https://tiles.openfreemap.org/styles/dark', bounds: [[11.5, -35.2], [33.2, -16.8]], attributionControl: { compact: true } });
   map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-right');
   map.addControl(new maplibregl.GeolocateControl({ trackUserLocation: false }), 'top-right');
 
   // Traveller pins: one photo pin per public memory with a location
   for (const e of feed.filter((x) => x.lat != null)) {
     const el = document.createElement('button'); el.className = 'ex-av'; el.type = 'button';
-    const cov = urlOf[e.photos?.[0]]; if (cov) el.style.backgroundImage = `url('${cov.replace(/'/g, '%27')}')`; else el.textContent = name(people[e.user_id])[0].toUpperCase();
+    const cov = safeImg(urlOf[e.photos?.[0]]); if (cov) el.style.backgroundImage = `url('${cov}')`; else el.textContent = name(people[e.user_id])[0].toUpperCase();
     el.setAttribute('aria-label', `${name(people[e.user_id])}: ${e.title}`);
     el.addEventListener('click', (ev) => { ev.stopPropagation(); memoryWindow(e); });
     new maplibregl.Marker({ element: el }).setLngLat([e.lng, e.lat]).addTo(map);
   }
+  }
 
   const memoryWindow = (e) => {
     const a = people[e.user_id]; const pics = (e.photos || []).map((p) => urlOf[p]).filter(Boolean);
-    modal(`<div class="pw">${pics.length ? `<div class="pw-pics">${pics.map((u) => `<span style="background-image:url('${esc(u)}')"></span>`).join('')}</div>` : ''}
+    modal(`<div class="pw">${pics.length ? `<div class="pw-pics">${pics.map((u) => `<span style="background-image:url('${esc(safeImg(u))}')"></span>`).join('')}</div>` : ''}
       <span class="eyebrow">${esc(e.place_name || 'On the road')}</span><h2>${esc(e.title)}</h2>
       <p class="small muted" style="margin:0">By <b>${esc(name(a))}</b>${a?.home_country ? ` from ${esc(a.home_country)}` : ''}</p>
       ${e.story ? `<p style="margin:0">${esc(e.story.slice(0, 220))}${e.story.length > 220 ? '…' : ''}</p>` : ''}
-      <div class="row wrap"><a class="btn small primary" data-close href="#/journal/${esc(e.id)}">Open memory</a><a class="btn small ghost" data-close href="#/messages?to=${esc(e.user_id)}">Message</a><button class="btn small ghost" data-close>Close</button></div></div>`);
+      <div class="row wrap"><a class="btn small primary" data-close href="#/journal/${esc(e.id)}">Open memory</a><a class="btn small ghost" data-close href="#/u/${esc(e.user_id)}">Profile & chat</a><button class="btn small ghost" data-close>Close</button></div></div>`);
   };
 
   const clearMarkers = () => { st.markers.forEach((m) => m.remove()); st.markers = []; };
   const rail = root.querySelector('#exrail');
 
+  let townReq = 0;
   const goTown = async (q) => {
+    const mine = ++townReq; const go = root.querySelector('#exq button'); go.disabled = true;
     rail.innerHTML = '<div class="skeleton"><span></span></div>';
     try {
-      const hit = (await placeSearch(q))[0]; if (!hit) throw new Error('Town not found');
+      const hit = (await placeSearch(q))[0]; if (mine !== townReq) return; if (!hit) throw new Error('Town not found');
       st.town = hit.name; st.center = { lat: hit.lat, lng: hit.lng };
-      map.flyTo({ center: [hit.lng, hit.lat], zoom: 12.5, speed: 1.2 });
+      map?.flyTo({ center: [hit.lng, hit.lat], zoom: 12.5, speed: 1.2 });
       root.querySelector('#extitle').innerHTML = `<b>Exploring ${esc(hit.name)}</b><small>What are you looking for?</small>`;
       root.querySelector('#excats').hidden = false; rail.innerHTML = '';
+      const gl = root.querySelector('#exguide'); gl.hidden = false; gl.href = '#/town/' + encodeURIComponent(hit.name); gl.textContent = `📖 ${hit.name} guide`;
       root.querySelectorAll('[data-town]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.town === q)));
       clearMarkers(); pickCat(st.cat || 'food');
       window.dispatchEvent(new CustomEvent('sc:pulse', { detail: { kind: 'town', meta: { name: hit.name } } }));
-    } catch (err) { oops(err, () => goTown(q)); }
+    } catch (err) { if (mine === townReq) oops(err, () => goTown(q)); } finally { if (mine === townReq) go.disabled = false; }
   };
   // Friendly errors with a retry, instead of raw messages like "signal timed out"
   const oops = (err, retry) => {
@@ -129,6 +137,7 @@ export async function mountExploreMap(root, deps) {
       if (mine !== req) return; // a newer choice was made while this one loaded
       st.places = places;
       if (!st.places.length) { rail.innerHTML = `<p class="small muted">Nothing mapped for ${esc(cat[1].toLowerCase())} here yet. <a href="${esc(gmaps(`${cat[1]} near ${st.town}`))}" target="_blank" rel="noopener noreferrer">Try Google Maps</a></p>`; return; }
+      if (map) {
       const bb = new maplibregl.LngLatBounds();
       st.places.forEach((p, i) => {
         const el = document.createElement('button'); el.className = 'ex-pin'; el.type = 'button'; el.textContent = String(i + 1);
@@ -136,6 +145,7 @@ export async function mountExploreMap(root, deps) {
         st.markers.push(new maplibregl.Marker({ element: el }).setLngLat([p.lng, p.lat]).addTo(map)); bb.extend([p.lng, p.lat]);
       });
       st.bb = bb; map.fitBounds(bb, { padding: 60, maxZoom: 15 });
+      }
       deck?.set(st.places.map((p, n) => ({ id: p.key, title: p.name, icon: CAT_ICON[key], badge: `${n + 1} of ${st.places.length}`, sub: `${cap(p.kind || cat[1])} · ${dist(p.dist)} away`, tags: [p.hours && 'Hours listed', p.phone && 'Call', p.web && 'Website', st.town], data: { type: 'place', p } })));
       rail.innerHTML = st.places.map((p, i) => `<button type="button" class="ex-card" data-p="${i}"><span class="n">${i + 1}</span><b>${esc(p.name)}</b><small>${esc(p.kind || cat[1])} · ${dist(p.dist)}</small></button>`).join('');
     } catch (err) { if (mine === req) oops(err, () => pickCat(key)); }
@@ -155,33 +165,37 @@ export async function mountExploreMap(root, deps) {
       <h3>Travellers who've been here</h3><div id="pwppl" class="pw-ppl"><div class="skeleton"><span></span></div></div>
       <button class="btn small ghost" data-close style="align-self:flex-start">Close</button></div>`, async (pnl, close) => {
       pnl.querySelector('#pwrev').onclick = () => { close(); reviewSheet(p, () => {}); };
+      try {
       // 1) photos of this spot
       const [pics, reviews] = await Promise.all([commonsPhotos(p), api.reviews([p.key]).catch(() => [])]);
       const revPics = reviews.filter((r) => r.photo_path).map((r) => api.reviewPhoto(r.photo_path));
       const all = [...revPics, ...pics];
       const box = pnl.querySelector('#pwpics');
-      if (box) box.innerHTML = all.length ? all.map((u) => `<span style="background-image:url('${esc(u)}')"></span>`).join('') : '<p class="small muted" style="margin:0">No photos yet. Visit, then add yours in a review or your journal.</p>';
+      if (box) box.innerHTML = all.length ? all.map((u) => `<span style="background-image:url('${esc(safeImg(u))}')"></span>`).join('') : '<p class="small muted" style="margin:0">No photos yet. Visit, then add yours in a review or your journal.</p>';
       // 2) people: public memories within 600 m or naming the place, and member reviews
       const near = feed.filter((e) => (e.lat != null && km(p, e) < 0.6) || (e.place_name || '').toLowerCase().includes(p.name.toLowerCase()));
       const revPeople = await api.profilesById(reviews.map((r) => r.user_id)).catch(() => ({}));
       const pp = pnl.querySelector('#pwppl'); if (!pp) return;
       const rows = [
         ...near.map((e) => { const a = people[e.user_id]; const ph = (e.photos || []).map((x) => urlOf[x]).filter(Boolean).slice(0, 3);
-          return `<a class="pw-person" data-close href="#/journal/${esc(e.id)}"><span class="avatar">${esc(name(a)[0].toUpperCase())}</span><span class="pw-who"><b>${esc(name(a))}</b><small>${esc(e.title)}</small></span>${ph.map((u) => `<i style="background-image:url('${esc(u)}')"></i>`).join('')}</a>`; }),
+          return `<a class="pw-person" data-close href="#/u/${esc(e.user_id)}"><span class="avatar">${esc(name(a)[0].toUpperCase())}</span><span class="pw-who"><b>${esc(name(a))}</b><small>${esc(e.title)}</small></span>${ph.map((u) => `<i style="background-image:url('${esc(safeImg(u))}')"></i>`).join('')}</a>`; }),
         ...reviews.map((r) => { const a = revPeople[r.user_id];
-          return `<div class="pw-person"><span class="avatar">${esc(name(a)[0].toUpperCase())}</span><span class="pw-who"><b>${esc(name(a))} <span style="color:var(--accent)">${'★'.repeat(r.rating)}</span></b><small>${esc(r.body.slice(0, 90))}</small></span>${r.photo_path ? `<i style="background-image:url('${esc(api.reviewPhoto(r.photo_path))}')"></i>` : ''}</div>`; }),      ];
+          return `<div class="pw-person"><span class="avatar">${esc(name(a)[0].toUpperCase())}</span><span class="pw-who"><b>${esc(name(a))} <span style="color:var(--accent)">${'★'.repeat(r.rating)}</span></b><small>${esc(r.body.slice(0, 90))}</small></span>${r.photo_path ? `<i style="background-image:url('${esc(safeImg(api.reviewPhoto(r.photo_path)))}')"></i>` : ''}</div>`; }),      ];
       pp.innerHTML = rows.length ? rows.join('') : `<p class="small muted" style="margin:0">Nobody has shared this place yet. Be the first: add it to a public journal memory.</p>`;
+      } catch { // never leave the loading shimmer spinning
+        const msg = '<p class="small muted" style="margin:0">Could not load this right now. Close and try again.</p>';
+        for (const id of ['#pwpics', '#pwppl']) { const el = pnl.querySelector(id); if (el?.querySelector('.pw-load, .skeleton')) el.innerHTML = msg; }
+      }
     });
   };
 
   // Swipe deck (explore-swipe.js): towns and travellers' memories first, then the places in a town
-  const { mountSwipe } = await import('./explore-swipe.js');
   const SA = ['Cape Town', 'Johannesburg', 'Durban'];
   const startCards = [];
   const mems = feed.filter((e) => urlOf[e.photos?.[0]]);
   TOWNS.forEach((t, k) => {
     startCards.push({ id: 'town:' + t, title: t, icon: '◎', badge: 'Town', sub: `${SA.includes(t) ? 'South Africa' : 'Namibia'} · swipe right to explore`, tags: ['Food', 'Sights', 'Stays'], data: { type: 'town', t } });
-    const e = mems[k]; if (e) startCards.push({ id: 'mem:' + e.id, img: urlOf[e.photos[0]], title: e.title, badge: 'Traveller', sub: `${name(people[e.user_id])}${e.place_name ? ' · 📍 ' + e.place_name : ''}`, tags: [e.rating ? '★'.repeat(e.rating) : '', (e.photos || []).length > 1 ? `${e.photos.length} photos` : ''], data: { type: 'mem', e } });
+    const e = mems[k]; if (e) startCards.push({ id: 'mem:' + e.id, img: safeImg(urlOf[e.photos[0]]), title: e.title, badge: 'Traveller', sub: `${name(people[e.user_id])}${e.place_name ? ' · 📍 ' + e.place_name : ''}`, tags: [e.rating ? '★'.repeat(e.rating) : '', (e.photos || []).length > 1 ? `${e.photos.length} photos` : ''], data: { type: 'mem', e } });
   });
   const deck = mountSwipe(root.querySelector('#exdeck'), {
     cards: startCards, esc, yesLabel: 'Yes', noLabel: 'Skip',
@@ -194,7 +208,7 @@ export async function mountExploreMap(root, deps) {
       if (c.data.type === 'place') return (await commonsPhotos(c.data.p))[0] || '';
       return '';
     },
-    onOpen: (c) => (c.data.type === 'town' ? goTown(c.data.t) : c.data.type === 'mem' ? memoryWindow(c.data.e) : placeWindow(c.data.p)),
+    onOpen: (c) => (c.data.type === 'town' ? (location.hash = '#/town/' + encodeURIComponent(c.data.t)) : c.data.type === 'mem' ? memoryWindow(c.data.e) : placeWindow(c.data.p)),
     onYes: (c) => {
       if (c.data.type === 'town') return goTown(c.data.t);
       if (c.data.type === 'mem') { api.react?.(c.data.e.id, '❤️', true).catch(() => {}); return; }
@@ -210,7 +224,7 @@ export async function mountExploreMap(root, deps) {
     const b = ev.target.closest('[data-v]'); if (!b) return; const v = b.dataset.v;
     root.querySelectorAll('.seg [data-v]').forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
     root.classList.toggle('swipe', v === 'swipe'); root.querySelector('#exdeck').hidden = v !== 'swipe'; root.querySelector('.ex-map').hidden = v !== 'map';
-    if (v === 'map') { map.resize(); if (st.bb) map.fitBounds(st.bb, { padding: 60, maxZoom: 15, duration: 0 }); }
+    if (v === 'map' && map) { map.resize(); if (st.bb) map.fitBounds(st.bb, { padding: 60, maxZoom: 15, duration: 0 }); }
   });
   root.querySelector('#exsaved').onclick = () => {
     const list = saved();
@@ -222,6 +236,7 @@ export async function mountExploreMap(root, deps) {
   root.querySelector('#exq').onsubmit =(ev) => { ev.preventDefault(); const q = root.querySelector('#exqi').value.trim(); if (q.length > 1) goTown(q); };
   root.querySelector('#extowns').addEventListener('click', (ev) => { const b = ev.target.closest('[data-town]'); if (b) goTown(b.dataset.town); });
   root.querySelector('#excats').addEventListener('click', (ev) => { const b = ev.target.closest('[data-cat]'); if (b) pickCat(b.dataset.cat); });
-  rail.addEventListener('click', (ev) => { const b = ev.target.closest('[data-p]'); if (b) { const p = st.places[+b.dataset.p]; map.flyTo({ center: [p.lng, p.lat], zoom: 16 }); placeWindow(p); } });
-  return () => map.remove();
+  rail.addEventListener('click', (ev) => { const b = ev.target.closest('[data-p]'); if (b) { const p = st.places[+b.dataset.p]; map?.flyTo({ center: [p.lng, p.lat], zoom: 16 }); placeWindow(p); } });
+  const askTown = new URLSearchParams(location.hash.split('?')[1] || '').get('town'); if (askTown) goTown(askTown); // from a Town Guide's "Swipe places"
+  return () => map?.remove();
 }

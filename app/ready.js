@@ -115,6 +115,7 @@ export function Ready(main, { esc }) {
       <h3 style="margin:0"><span aria-hidden="true">${n.e}</span> ${esc(n.t)}</h3>
       <ul class="md-ul">${n.p.map((x) => `<li>${x}</li>`).join('')}</ul>
       ${n.call ? `<a class="btn primary small" href="tel:${n.call}" style="align-self:flex-start">📞 Call ${n.call}</a>` : ''}
+      ${/visa/i.test(n.t) ? '<button type="button" class="btn small ghost ask-nami" data-ask="Which passport and visa rules apply to me for Namibia and South Africa? Keep it short and give the official link." style="align-self:flex-start">✦ Ask Nami about passports & visas</button>' : ''}
       <p class="small muted" style="margin:auto 0 0">Checked ${CHECKED} · ${srcLinks(n.s, esc)}</p></article>`).join('')}</div></section>
 
   <section class="card accent stack reveal"><h2 style="margin:0">Going somewhere else?</h2>
