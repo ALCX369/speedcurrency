@@ -821,18 +821,51 @@ a.pw-person:hover{border-color:var(--accent)}
 @media (max-width:520px){.ex-map{height:58vh;border-radius:24px}.pw-pics span{flex-basis:88%}}
 @media (prefers-reduced-motion:reduce){.ex-av{transition:none}.pw-pics .pw-load{animation:none}}
 
-/* My Google Maps reviews (google-reviews.js) */
-.pin.review{background:var(--gold-hi);color:var(--on-accent)}
-.gr-list{display:flex;flex-direction:column;gap:10px}
-.gr-card{display:flex;gap:12px;padding:10px;border-radius:18px;border:1px solid var(--line);background:var(--soft)}
-.gr-ph{flex:none;width:84px;height:84px;border-radius:14px;background:linear-gradient(135deg,#2A2116,var(--night)) center/cover no-repeat}
-.gr-body{display:flex;flex-direction:column;gap:3px;min-width:0;flex:1}
-.gr-body b{font-size:15px;line-height:1.25}
-.gr-body small{color:var(--muted);font-size:12.5px}
-.gr-body p{margin:2px 0 4px;font-size:14px;line-height:1.45;color:var(--muted2)}
-.gr-stars{color:var(--accent);letter-spacing:1px;font-size:14px}.gr-stars span{color:var(--line)}
-.gr-list.mini .gr-card{padding:8px 12px}
-.gr-consent{align-items:flex-start;gap:10px;font-size:14px;line-height:1.45}
-.gr-consent input{width:20px;height:20px;margin-top:2px;accent-color:var(--accent);flex:none}
-.gr-steps{margin:10px 0;padding-left:20px;display:grid;gap:6px}
-@media (max-width:420px){.gr-ph{width:64px;height:64px}}
+
+
+/* Journey Pulse (journey-pulse.js): level ring, streak flame, week, quests, badges, celebrations */
+.pulse{margin:16px 0 6px;padding:18px;border-radius:28px;background:radial-gradient(120% 120% at 0% 0%,#2A2116,var(--surface) 60%);border:1px solid rgba(216,166,87,.28);display:flex;flex-direction:column;gap:14px;overflow:hidden;position:relative}
+.pulse::after{content:"";position:absolute;right:-60px;top:-60px;width:180px;height:180px;border-radius:50%;background:radial-gradient(circle,rgba(255,106,43,.18),transparent 70%);pointer-events:none;animation:breathe 4s ease-in-out infinite}
+@keyframes breathe{50%{transform:scale(1.18);opacity:.6}}
+.pulse-top{display:flex;align-items:center;gap:14px}
+.pulse-ring{width:92px;height:92px;flex:none}
+.pr-bg{fill:none;stroke:var(--line);stroke-width:9}
+.pr-fg{fill:none;stroke:var(--accent);stroke-width:9;stroke-linecap:round;transform:rotate(-90deg);transform-origin:55px 55px;transition:stroke-dashoffset 1.2s var(--ease);filter:drop-shadow(0 0 6px rgba(216,166,87,.55))}
+.pr-n{fill:var(--ink);font-family:var(--display);font-weight:700;font-size:32px;text-anchor:middle}
+.pr-l{fill:var(--muted);font-size:10px;font-weight:800;letter-spacing:.14em;text-anchor:middle}
+.pulse-who{display:flex;flex-direction:column;gap:2px;min-width:0;flex:1}
+.pulse-who b{font-family:var(--display);font-size:26px;font-weight:600;line-height:1.05}
+.pulse-who small{color:var(--muted);font-size:13px}
+.xp-count{color:var(--accent);font-weight:800;font-variant-numeric:tabular-nums}
+.streak{display:flex;flex-direction:column;align-items:center;gap:0;min-width:58px;padding:8px 6px;border-radius:18px;background:var(--soft);border:1px solid var(--line);color:var(--muted)}
+.streak b{font-family:var(--display);font-size:24px;line-height:1;color:var(--ink)}
+.streak small{font-size:11px}
+.streak.lit{color:var(--ember);border-color:rgba(255,106,43,.45);background:rgba(255,106,43,.08)}
+.streak.lit svg{animation:flicker 1.6s ease-in-out infinite;transform-origin:50% 90%;filter:drop-shadow(0 0 6px rgba(255,106,43,.7))}
+@keyframes flicker{25%{transform:scale(1.08) rotate(-3deg)}50%{transform:scale(.96) rotate(2deg)}75%{transform:scale(1.05) rotate(-1deg)}}
+.week{display:grid;grid-template-columns:repeat(7,1fr);gap:6px}
+.week span{display:flex;flex-direction:column;align-items:center;gap:4px;font-size:11px;font-weight:700;color:var(--muted)}
+.week i{width:100%;max-width:34px;height:8px;border-radius:6px;background:var(--line)}
+.week .on i{background:linear-gradient(90deg,var(--accent),var(--ember));box-shadow:0 0 8px rgba(255,106,43,.45)}
+.week .today{color:var(--ink)}
+.quests{display:flex;flex-direction:column;gap:6px}
+.quests small{font-size:12px}
+.quest{display:flex;align-items:center;gap:10px;min-height:48px;padding:8px 12px;border-radius:16px;background:var(--soft);border:1px solid var(--line);color:var(--ink);text-decoration:none;transition:transform .2s var(--spring),border-color .2s}
+.quest:hover,.quest:focus-visible{border-color:var(--accent);transform:translateX(3px)}
+.qk{display:grid;place-items:center;flex:none;width:24px;height:24px;border-radius:50%;border:2px solid var(--accent);color:var(--on-accent);font-size:13px;font-weight:900}
+.qt{flex:1;font-size:14px}.qt small{color:var(--muted)}
+.qx{font-size:12px;font-weight:800;color:var(--accent)}
+.quest.done{opacity:.75}.quest.done .qk{background:var(--accent)}.quest.done .qt{text-decoration:line-through;text-decoration-color:var(--accent)}
+.badges{display:flex;gap:6px;overflow-x:auto;padding-bottom:2px}
+.badges::-webkit-scrollbar{display:none}
+.bdg{flex:none;padding:5px 10px;border-radius:999px;border:1px dashed var(--line);color:var(--muted);font-size:12px;font-weight:700;white-space:nowrap}
+.bdg.got{border:1px solid var(--accent);color:var(--on-accent);background:linear-gradient(135deg,var(--gold-hi),var(--accent))}
+.xp-float{position:fixed;z-index:90;left:50%;bottom:120px;transform:translateX(-50%);padding:8px 16px;border-radius:999px;background:var(--accent);color:var(--on-accent);font-weight:900;font-size:15px;pointer-events:none;box-shadow:0 10px 30px rgba(216,166,87,.4);animation:xpup 1.5s var(--ease) forwards}
+@keyframes xpup{0%{opacity:0;transform:translate(-50%,20px) scale(.8)}20%{opacity:1;transform:translate(-50%,0) scale(1.08)}80%{opacity:1}100%{opacity:0;transform:translate(-50%,-50px) scale(1)}}
+.pulse-banner{position:fixed;z-index:91;left:50%;top:18px;transform:translateX(-50%);max-width:min(92vw,460px);padding:14px 20px;border-radius:20px;background:linear-gradient(135deg,var(--gold-hi),var(--accent) 55%,var(--ember));color:var(--on-accent);font-family:var(--display);font-size:22px;font-weight:700;text-align:center;box-shadow:0 18px 40px rgba(0,0,0,.55);animation:bannerin 3.1s var(--spring) forwards}
+.pulse-banner.small{font-family:var(--body);font-size:15px;font-weight:800;background:var(--surface);color:var(--ink);border:1px solid var(--accent)}
+@keyframes bannerin{0%{opacity:0;transform:translate(-50%,-30px) scale(.9)}12%{opacity:1;transform:translate(-50%,0) scale(1)}85%{opacity:1}100%{opacity:0;transform:translate(-50%,-20px)}}
+.confetti{position:fixed;inset:0;z-index:89;pointer-events:none;overflow:hidden}
+.confetti i{position:absolute;top:-12px;left:var(--x);width:9px;height:14px;border-radius:2px;background:var(--c);animation:fall var(--d) var(--delay) ease-in forwards}
+@keyframes fall{to{transform:translateY(105vh) rotate(var(--r));opacity:.9}}
+@media (prefers-reduced-motion:reduce){.pulse::after,.streak.lit svg{animation:none}.pr-fg{transition:none}.xp-float,.pulse-banner{animation-duration:.01s;animation-delay:2.5s}.quest{transition:none}}

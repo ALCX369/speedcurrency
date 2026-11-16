@@ -472,11 +472,16 @@ function route() {
   return { name, id, q: new URLSearchParams(query || '') };
 }
 let cleanup = null;
+// Journey Pulse (journey-pulse.js): XP, streak, quests. Any code can report an action with pulse(kind).
+let pulseReady = null;
+const pulse = (kind, meta) => pulseReady?.then(() => window.dispatchEvent(new CustomEvent('sc:pulse', { detail: { kind, meta } })));
 async function render() {
   const r = route();
   const main = $('#main');
   if (!S.user && r.name !== 'auth') { location.hash = '#/auth'; return; }
   if (S.user && r.name === 'auth') { location.hash = '#/'; return; }
+  if (S.user && !pulseReady) pulseReady = import('./journey-pulse.js').then((m) => { m.startPulse(S.user.id); return m; }).catch(() => null);
+  if (['ready', 'updates', 'explore'].includes(r.name)) pulse(r.name);
   renderNav(r.name === 'auth' ? null : r.name);
   const views = { '': Home, planner: Planner, trips: Trips, map: MapView, journal: Journal, album: Album, explore: Explore, messages: Messages, account: Account, admin: Admin, updates: Updates, 'explore-na': Namibia, ready: async (m) => (await import('./ready.js')).Ready(m, { esc }), auth: Auth };
   const view = views[r.name] || Home;
@@ -607,6 +612,7 @@ async function Home(main) {
     <div class="row"><a class="badge" href="#/account?tab=tokens" style="text-decoration:none">🪙 ${bal}</a><a class="me" href="#/account" aria-label="Your account">${esc((first || 'Y')[0].toUpperCase())}</a></div>
   </header>
   ${hero.heroHtml(esc, S.profile.home_country_code === 'ZA' ? 'South Africa' : 'Namibia')}
+  <section class="pulse card reveal" id="pulse" aria-label="Journey pulse"></section>
   <section class="section" style="margin-top:14px"><div class="row between"><h2 id="recsh">Must-see today</h2><a href="#/explore-na">See all →</a></div>
     <div class="chips mood" id="moods" aria-label="Moods">${HOME_MOODS.map(([k, l], i) => `<button class="chip" data-mood="${k}" aria-pressed="${i === 0}">${l}</button>`).join('')}</div>
     <div class="rail" id="recs"></div></section>
@@ -662,6 +668,7 @@ async function Home(main) {
     });
   };
   hero.mountHero(main);
+  pulseReady?.then((m) => { const el = $('#pulse'); if (m && el) m.mountPulseCard(el); else el?.remove(); });
   $$('[data-mood]').forEach((b) => b.onclick = () => { $$('[data-mood]').forEach((x) => x.setAttribute('aria-pressed', String(x === b))); $('#recsh').textContent = b.dataset.mood === 'all' ? 'Must-see today' : b.textContent.replace(/^\W+\s*/, ''); recs(b.dataset.mood); });
   recs('all');
   (async () => {
@@ -678,7 +685,7 @@ async function Home(main) {
   let rateTable = null;
   const pick = (id, initial) => attachCurrencyPicker($(id), {
     esc, initial, homeCc: S.profile.home_country_code,
-    hasRate: (c) => !rateTable || !!rateTable[c.toLowerCase()], onPick: () => run(),
+    hasRate: (c) => !rateTable || !!rateTable[c.toLowerCase()], onPick: () => { run(); pulse('convert'); },
   });
   const pFrom = pick('#cfrom', 'USD');
   const pTo = pick('#cto', homeCur === 'USD' ? 'EUR' : homeCur);
@@ -979,10 +986,8 @@ function loadMapLib() {
   });
 }
 async function MapView(main) {
-  const [pins, entries, greviews] = await Promise.all([api.list('pins'), api.list('journal_entries'),
-    import('./google-reviews.js').then((m) => m.myReviews(sb, DEMO, S.user.id)).catch(() => [])]);
-  const all = [...pins, ...entries.filter((e) => e.lat != null).map((e) => ({ id: 'j' + e.id, kind: 'visited', name: e.title, lat: e.lat, lng: e.lng, note: e.story, journal: e.id })),
-    ...greviews.filter((g) => g.lat != null).map((g) => ({ id: 'g' + g.id, kind: 'review', name: g.place_name, lat: g.lat, lng: g.lng, note: `${g.rating ? '★'.repeat(g.rating) + ' ' : ''}${g.body || 'Reviewed on Google Maps'}`, google: true }))];
+  const [pins, entries] = await Promise.all([api.list('pins'), api.list('journal_entries')]);
+  const all = [...pins, ...entries.filter((e) => e.lat != null).map((e) => ({ id: 'j' + e.id, kind: 'visited', name: e.title, lat: e.lat, lng: e.lng, note: e.story, journal: e.id }))];
   main.innerHTML = `
   <div class="page-head"><div><span class="eyebrow">🗺️ Map</span><h1>Your places</h1><p>Home, garage, places you visited and places you plan to go. Tap the map to add a pin.</p></div>
     <div class="row"><span class="badge">${all.filter((p) => p.kind === 'visited').length} visited</span><span class="badge">${all.length} pins</span></div></div>
@@ -1000,7 +1005,7 @@ async function MapView(main) {
   const map = mapObj = new maplibregl.Map({ container: 'map', style: 'https://tiles.openfreemap.org/styles/liberty', center, zoom: all.length ? 5 : 4, pitch: 40, attributionControl: { compact: true } });
   map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), 'top-right');
   map.addControl(new maplibregl.GeolocateControl({ trackUserLocation: false }), 'top-right');
-  const letter = { home: 'H', garage: 'G', visited: '★', planned: '+', saved: '•', review: 'R' };
+  const letter = { home: 'H', garage: 'G', visited: '★', planned: '+', saved: '•' };
   const sheet = $('#sheet');
   const show = (p) => {
     sheet.innerHTML = `<div class="sheet stack"><div class="row between"><span class="badge">${esc(p.kind)}</span><button class="btn small ghost" data-x aria-label="Close">✕</button></div>
@@ -1008,7 +1013,7 @@ async function MapView(main) {
       <div class="row wrap">
         <a class="btn small dark" target="_blank" rel="noopener" href="https://www.openstreetmap.org/directions?to=${p.lat}%2C${p.lng}">Directions</a>
         <a class="btn small" href="#/planner?q=${encodeURIComponent(`Tell me about ${p.name}: reviews, prices and tips`)}">Ask planner</a>
-        ${p.journal ? `<a class="btn small" href="#/journal/${p.journal}">Open journal</a>` : p.google ? '<a class="btn small ghost" href="#/account">My Google reviews</a>' : `<button class="btn small ghost" data-del>Delete pin</button>`}
+        ${p.journal ? `<a class="btn small" href="#/journal/${p.journal}">Open journal</a>` : `<button class="btn small ghost" data-del>Delete pin</button>`}
       </div></div>`;
     $('[data-x]', sheet).onclick = () => { sheet.innerHTML = ''; };
     const d = $('[data-del]', sheet);
@@ -1220,7 +1225,8 @@ function editEntry(e = null) {
           visited_on: $('#jd', p).value || null, rating: st.rating || null, story: $('#js', p).value.trim() || null,
           photos: [...st.photos, ...uploaded].slice(0, 6), people: st.people, is_public: pub.getAttribute('aria-checked') === 'true',
         };
-        if (e) await api.update('journal_entries', e.id, row); else await api.insert('journal_entries', row);
+        if (e) await api.update('journal_entries', e.id, row); else { await api.insert('journal_entries', row); pulse('memory'); }
+        if (uploaded.length) pulse('photo', { n: uploaded.length });
         close(); toast('Journal saved'); location.hash = '#/journal'; render();
       } catch (err) { toast(err.message); btn.disabled = false; btn.textContent = 'Save entry'; }
     });
@@ -1285,9 +1291,7 @@ async function Account(main, r) {
         <div class="row between"><span>Public journal<br><span class="small muted">Lets others see entries you mark public</span></span><button class="switch" role="switch" data-f="public_journal" aria-checked="${p.public_journal}" aria-label="Public journal"></button></div>
         <div class="row between"><span>Let people tag me<br><span class="small muted">Others can link you in “people met”</span></span><button class="switch" role="switch" data-f="allow_tags" aria-checked="${p.allow_tags}" aria-label="Let people tag me"></button></div>
         <p class="small muted" style="margin:0">Assistant questions are sent to our AI provider (Google Gemini). Don’t include passport numbers or other private details.</p>
-      </div>
-      <div class="card stack" id="greviews"><h2>My Google Maps reviews</h2><div class="skeleton"><span></span></div></div>
-    </section>
+      </div>    </section>
 
     <section class="stack">
       <div class="card stack" id="tokens"><h2>${icon('token', 20)} Tokens: ${bal}</h2>
@@ -1316,9 +1320,7 @@ async function Account(main, r) {
   </div>`;
   let addr = p.residential_address ? { name: p.residential_address, lat: p.residential_lat, lng: p.residential_lng } : null;
   placePicker($('#paddr'), (pl) => { addr = { name: (pl.name + (pl.detail ? ', ' + pl.detail : '')).slice(0, 200), lat: pl.lat, lng: pl.lng }; });
-  $('#out').onclick = async () => { await api.signOut(); endSession(); };
-  import('./google-reviews.js').then(({ mountGoogleReviews }) => { const b = $('#greviews'); if (b) mountGoogleReviews(b, { sb, DEMO, userId: S.user.id, esc, toast, modal }); });
-  $('#outall').onclick = async () => {
+  $('#out').onclick = async () => { await api.signOut(); endSession(); };  $('#outall').onclick = async () => {
     if (DEMO) return toast('This works once you are signed in online.');
     if (!confirm('Sign out on every phone and computer, including this one?')) return;
     try { await api.signOut('global'); } catch (err) { return toast(err.message); }
@@ -1467,8 +1469,7 @@ async function Explore(main) {
   $$('[data-play]').forEach((b) => b.onclick = () => { const e = feed[+b.dataset.play]; storyPlayer(slidesFor([e]), name(people[e.user_id])); });
   // Map with travellers' photo pins, town zoom, "what are you looking for" and place windows (explore-map.js)
   const { mountExploreMap } = await import('./explore-map.js');
-  const { publicNear } = await import('./google-reviews.js');
-  cleanup = await mountExploreMap($('#exmap'), { esc, api, loadMapLib, placeSearch, modal, reviewSheet, feed, people, urlOf, googleNear: (p) => publicNear(sb, DEMO, p) });
+  cleanup = await mountExploreMap($('#exmap'), { esc, api, loadMapLib, placeSearch, modal, reviewSheet, feed, people, urlOf });
   // Venmo-style emoji reactions under every journey
   const REACTS = ['❤️', '🔥', '😍', '👏', '🌍', '😂'];
   const all = await api.reactions(feed.map((e) => e.id)).catch(() => []);

@@ -31,5 +31,6 @@ begin
   end if;
   return new;
 end $$;
+revoke execute on function public.google_reviews_cap() from public, anon, authenticated;
 drop trigger if exists google_reviews_cap on public.google_reviews;
 create trigger google_reviews_cap before insert on public.google_reviews for each row execute function public.google_reviews_cap();
