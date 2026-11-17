@@ -1,4 +1,4 @@
-﻿// ☥ ALCX · 3·6·9 · life path 33/6 · love, peace, 520 741 8
+// ☥ ALCX · 3·6·9 · life path 33/6 · love, peace, 520 741 8
 // SpeedCurrency service worker: opens instantly and works on bad connections.
 // App files: show the cached copy right away, refresh it in the background.
 // Data, sign-in, AI and payments always go to the network.
