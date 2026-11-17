@@ -20,10 +20,22 @@ export function mountSwipe(el, { cards, esc, onYes, onNo, onOpen, loadImg, empty
       <button type="button" class="sw-b yes" aria-label="${esc(yesLabel)}"><svg viewBox="0 0 24 24" width="28" height="28" fill="currentColor"><path d="M12 21s-7.5-4.6-9.6-9.3C.9 8.3 3 4.5 6.7 4.5c2.1 0 3.6 1.2 4.3 2.4h2c.7-1.2 2.2-2.4 4.3-2.4 3.7 0 5.8 3.8 4.3 7.2C19.5 16.4 12 21 12 21Z"/></svg></button>
     </div>`;
   const stack = el.querySelector('.sw-stack');
+  stack.addEventListener('pointerdown', (e) => { if (e.target.closest('.sw-pg')) e.stopPropagation(); }, true);
+  stack.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-pg]'); if (!b) return; e.stopPropagation();
+    const node = b.closest('.sw-card'); const c = cards[+node.dataset.k]; if (!c?.imgs?.length) return;
+    c.pi = (c.pi + +b.dataset.pg + c.imgs.length) % c.imgs.length; c.img = c.imgs[c.pi];
+    node.style.backgroundImage = `url('${esc(c.img)}')`;
+    node.querySelectorAll('.sw-dots i').forEach((d, n) => d.classList.toggle('on', n === c.pi));
+  }, true);
 
+  // several photos per card: dots on top, tap ‹ › to flip (the buttons never start a swipe)
+  const pgHtml = (c) => ((c.imgs || []).length > 1 ? `<div class="sw-dots" aria-hidden="true">${c.imgs.map((_, n) => `<i class="${n === (c.pi || 0) ? 'on' : ''}"></i>`).join('')}</div>`
+    + `<button type="button" class="sw-pg prev" data-pg="-1" aria-label="Previous photo">‹</button><button type="button" class="sw-pg next" data-pg="1" aria-label="Next photo">›</button>` : '');
+  const setImgs = (c, u) => { c.imgs = (Array.isArray(u) ? u : [u]).map(safeImg).filter(Boolean).slice(0, 8); c.pi = 0; c.img = c.imgs[0] || ''; };
   const cardHtml = (c, k) => `<article class="sw-card" data-k="${k}" style="${safeImg(c.img) ? `background-image:url('${esc(safeImg(c.img))}')` : ''}" tabindex="${k === i ? 0 : -1}" aria-label="${esc(c.title)}">
       ${c.img ? '' : `<span class="sw-ph" aria-hidden="true">${esc(c.icon || '✦')}</span>`}
-      ${c.badge ? `<span class="sw-badge">${esc(c.badge)}</span>` : ''}
+      ${c.badge ? `<span class="sw-badge">${esc(c.badge)}</span>` : ''}${pgHtml(c)}
       <span class="sw-stamp yes" aria-hidden="true">${esc(yesLabel)}</span><span class="sw-stamp no" aria-hidden="true">${esc(noLabel)}</span>
       <div class="sw-info"><h2>${esc(c.title)}</h2>${c.sub ? `<p>${esc(c.sub)}</p>` : ''}
         ${c.tags?.length ? `<div class="sw-tags">${c.tags.filter(Boolean).map((t) => `<span>${esc(t)}</span>`).join('')}</div>` : ''}</div>
@@ -36,7 +48,7 @@ export function mountSwipe(el, { cards, esc, onYes, onNo, onOpen, loadImg, empty
     stack.innerHTML = left.map((c, n) => cardHtml(c, i + n)).reverse().join('');
     stack.querySelectorAll('.sw-card').forEach((c) => { const n = +c.dataset.k - i; c.style.setProperty('--n', n); });
     // fetch photos for the top cards that don't have one yet
-    left.forEach((c, n) => { if (!c.img && !c.tried && loadImg) { c.tried = true; loadImg(c).then((u) => { u = safeImg(u); if (u) { c.img = u; const node = stack.querySelector(`[data-k="${i + n}"]`); if (node) { node.style.backgroundImage = `url('${u}')`; node.querySelector('.sw-ph')?.remove(); } } }).catch(() => {}); } });
+    left.forEach((c, n) => { if (!c.img && !c.tried && loadImg) { c.tried = true; loadImg(c).then((u) => { setImgs(c, u); if (c.img) { const node = stack.querySelector(`[data-k="${i + n}"]`); if (node) { node.style.backgroundImage = `url('${c.img}')`; node.querySelector('.sw-ph')?.remove(); node.querySelector('.sw-info').insertAdjacentHTML('beforebegin', pgHtml(c)); } } }).catch(() => {}); } });
     const top = stack.querySelector(`[data-k="${i}"]`); drag(top);
     if (focusNext) { focusNext = false; top?.focus({ preventScroll: true }); }
   };

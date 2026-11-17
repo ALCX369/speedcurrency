@@ -6,6 +6,9 @@ export const THEMES = [
   { id: 'ember', name: 'Ember Sport', desc: 'Bold, fast and fiery: racing stripes and ember orange.', premium: false, sw: ['#F3F1EE', '#FF5A1F', '#111214'] },
   { id: 'ocean', name: 'Ocean Blue', desc: 'Swakopmund sea and Skeleton Coast fog.', premium: true, sw: ['#EEF3F5', '#2F8FB5', '#0E1B22'] },
   { id: 'rose', name: 'Rose Quartz', desc: 'Kalahari sunset pink with soft gold.', premium: true, sw: ['#F7F0EF', '#D46A7E', '#1E1316'] },
+  { id: 'welwitschia', name: 'Welwitschia', desc: 'Sage and deep olive, after the 1,000-year-old desert plant.', premium: false, sw: ['#EFF2EA', '#5E7D32', '#13201A'] },
+  { id: 'copper', name: 'Kalahari Copper', desc: 'Red dunes at sunset: warm sand and burnished copper.', premium: true, sw: ['#F6EEE6', '#B4552D', '#24120B'] },
+  { id: 'stars', name: 'Namib Stars', desc: 'A dark-sky night over the Namib: deep navy with starlight silver.', premium: true, sw: ['#0B0E16', '#9DB4E0', '#E8ECF5'] },
 ];
 const SUGGEST = { he: 'ember', she: 'rose', skip: 'dune' };
 const key = (uid) => `sc_theme_${uid || 'guest'}`;

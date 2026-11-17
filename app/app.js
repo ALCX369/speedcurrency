@@ -226,9 +226,9 @@ const api = {
     const { data } = await sb.from('journal_comments').select('*').eq('entry_id', entryId).order('created_at');
     return data || [];
   },
-  async addComment(entryId, body) {
+  async addComment(entryId, body, parent = null) {
     if (DEMO) throw new Error('Comments work once you are signed in online.');
-    const { error } = await sb.rpc('add_comment', { entry: entryId, body });
+    const { error } = await sb.rpc('add_comment', parent ? { entry: entryId, body, parent } : { entry: entryId, body });
     if (error) throw new Error(error.message);
   },
   async reactions(ids) {
@@ -458,7 +458,7 @@ function activateAds() {
     s.src = `https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=${encodeURIComponent(C.ADSENSE_CLIENT)}`;
     document.head.appendChild(s); adsenseLoaded = true;
   }
-  $$('ins.adsbygoogle:not([data-done])').forEach((el) => { el.dataset.done = '1'; try { (window.adsbygoogle = window.adsbygoogle || []).push({}); } catch { /* ad blockers */ } });
+  $$('ins.adsbygoogle:not([data-done])').forEach((el) => { if (!el.offsetWidth) return; /* hidden slot: AdSense errors on zero width, try again on the next page */ el.dataset.done = '1'; try { (window.adsbygoogle = window.adsbygoogle || []).push({}); } catch { /* ad blockers */ } });
 }
 
 /* ---------- navigation ---------- */
@@ -501,13 +501,13 @@ async function render() {
   if (!S.user && r.name !== 'auth') { location.hash = '#/auth'; return; }
   if (S.user && r.name === 'auth') { location.hash = '#/'; return; }
   // Floating assistant + in-app news sheets (chat-fab.js), hidden on the Assistant page itself
-  if (S.user && window.scAskUid !== S.user.id) { window.scAskUid = S.user.id; import('./chat-fab.js').then((m) => m.mountFab({ api, esc, md, DEMO, uid: S.user.id })).catch(() => {}); }
+  if (S.user && window.scAskUid !== S.user.id) { window.scAskUid = S.user.id; import('./chat-fab.js').then((m) => m.mountFab({ api, esc, md, DEMO, uid: S.user.id, name: S.profile?.display_name || '', profileMemory: S.profile?.nami_memory || '' })).catch(() => {}); }
   if (S.user && window.scThemeUid !== S.user.id) { window.scThemeUid = S.user.id; import('./themes.js').then((m) => m.applyTheme(S.user.id, premium())).catch(() => {}); }
   document.body.classList.toggle('no-fab', !S.user || ['planner', 'auth'].includes(r.name));
   if (S.user && !pulseReady) pulseReady = import('./journey-pulse.js').then((m) => { m.startPulse(S.user.id); return m; }).catch(() => null);
   if (['ready', 'updates', 'explore'].includes(r.name)) pulse(r.name);
   renderNav(r.name === 'auth' ? null : r.name);
-  const views = { '': Home, planner: Planner, trips: Trips, map: MapView, journal: Journal, album: Album, explore: Explore, messages: Messages, account: Account, admin: Admin, updates: Updates, 'explore-na': Namibia, ready: async (m) => (await import('./ready.js')).Ready(m, { esc }), u: async (m, rr) => { cleanup = await (await import('./profile.js')).Profile(m, rr, { esc, api, sb, S, DEMO, modal, toast, reportFlow, premium, fmtDate }); }, trends: async (m) => (await import('./trends.js')).Trends(m, { esc, api, placeSearch, tier, modal, icon, gmaps, ago, sb, S, DEMO }), town: async (m, rr) => (await import('./town-guide.js')).TownGuide(m, rr, { esc, api, placeSearch, tier, modal, icon, gmaps, ago, sb, S, DEMO }), auth: Auth };
+  const views = { '': Home, planner: Planner, trips: Trips, map: MapView, journal: Journal, album: Album, explore: Explore, messages: Messages, account: Account, admin: Admin, updates: Updates, 'explore-na': Namibia, ready: async (m) => (await import('./ready.js')).Ready(m, { esc }), u: async (m, rr) => { cleanup = await (await import('./profile.js')).Profile(m, rr, { esc, api, sb, S, DEMO, modal, toast, reportFlow, premium, fmtDate }); }, trends: async (m) => (await import('./trends.js')).Trends(m, { esc, api, placeSearch, tier, modal, icon, gmaps, ago, sb, S, DEMO }), town: async (m, rr) => (await import('./town-guide.js')).TownGuide(m, rr, { esc, api, placeSearch, tier, modal, icon, gmaps, ago, sb, S, DEMO, toast }), auth: Auth };
   const view = views[r.name] || Home;
   try { cleanup?.(); } catch { /* ignore */ } cleanup = null;
   main.innerHTML = '<div class="skeleton"><span></span><span></span><span></span></div>';
@@ -1091,8 +1091,8 @@ async function JournalEntry(main, id) {
   const e = await api.get('journal_entries', id);
   if (!e) { main.innerHTML = '<div class="empty">Entry not found. <a href="#/journal">Back</a></div>'; return; }
   const mine = e.user_id === S.user.id || DEMO;
-  const [urls, comments] = await Promise.all([api.photoUrls(e.photos), api.comments(id)]);
-  const people = await api.profilesById([e.user_id, ...comments.map((c) => c.user_id)]);
+  const urls = await api.photoUrls(e.photos);
+  const people = await api.profilesById([e.user_id]);
   const author = people[e.user_id];
   const name = (p) => (p ? (p.display_name || '@' + (p.username || 'traveller')) : 'Traveller');
   // Along the rope: the newer and older memory next to this one (own journal only)
@@ -1124,13 +1124,7 @@ async function JournalEntry(main, id) {
       ${newer || older ? `<nav class="rope-nav" aria-label="Along your rope">${newer ? step(newer, 'newer') : ''}${older ? step(older, 'older') : ''}</nav>` : ''}
       <div class="card"><h2>People met</h2>${(e.people || []).map((p) => `<div class="person"><span class="avatar">${esc((p.name || '?')[0].toUpperCase())}</span><span style="flex:1"><b>${esc(p.name)}</b><br><span class="small muted">From ${esc(p.from_country || 'unknown')}</span></span>${p.username ? `<span class="badge ok">@${esc(p.username)}</span>` : '<span class="badge">Not on the app</span>'}</div>`).join('') || '<p class="muted">Nobody added.</p>'}</div>
       ${e.lat != null && mine ? `<a class="btn ghost" href="#/map">See on my map</a>` : ''}
-      <div class="card stack" id="comments"><h2>Comments (${comments.length})</h2>
-        ${comments.map((c) => `<div class="person comment" data-cid="${c.id}"><span class="avatar">${esc(name(people[c.user_id])[0].toUpperCase())}</span><span style="flex:1"><b>${esc(name(people[c.user_id]))}</b><br><span class="cbody">${esc(c.body)}</span><br><span class="small muted">${ago(c.created_at)}${c.edited_at ? ' · edited' : ''}</span></span>
-          <span class="row" style="gap:4px">${c.user_id === S.user.id ? `<button class="btn small ghost" data-cedit="${c.id}" aria-label="Edit comment">✏️</button>` : ''}${c.user_id === S.user.id || mine ? `<button class="btn small ghost" data-cdel="${c.id}" aria-label="Delete comment">🗑️</button>` : ''}</span></div>`).join('') || '<p class="muted" style="margin:0">No comments yet. Be the first! 💬</p>'}
-        ${(e.is_public || mine) ? `<div class="chips emoji-picks" aria-label="Quick emojis">${['😍', '🔥', '👏', '🌍', '🙌', '😂', '🦁', '🏜️'].map((x) => `<button type="button" class="chip" data-emo="${x}">${x}</button>`).join('')}</div>
-        <form class="row" id="cform"><label class="sr" for="cbody">Comment</label><input class="input" id="cbody" maxlength="300" placeholder="Say something nice… ✨"><button class="btn dark">Post</button></form>
-        <span class="small muted">${mine || premium() ? 'Comments are free for you.' : 'Commenting uses 1 token.'}</span>` : ''}
-      </div>
+      <div class="card stack" id="comments" aria-label="Comments"><div class="skeleton"><span></span></div></div>
     </section>
   </div>`;
   const ask = () => new Promise((res) => modal(`<h2>Who is this?</h2><form class="stack" id="askf" style="margin-top:12px"><label class="sr" for="aski">Their username</label><input class="input" id="aski" placeholder="@username" maxlength="21" autocapitalize="none" autocomplete="off"><div class="row"><button class="btn primary" style="flex:1">Tag</button><button type="button" class="btn ghost" data-close>Cancel</button></div></form>`, (p, close) => {
@@ -1142,17 +1136,8 @@ async function JournalEntry(main, id) {
     $('#jedit').onclick = () => editEntry(e);
     $('#jdel').onclick = async () => { if (confirm('Delete this entry and its photos?')) { await api.remove('journal_entries', id); location.hash = '#/journal'; } };
   } else $('#jrep').onclick = () => reportFlow('entry', id, e.user_id);
-  const cf = $('#cform');
-  if (cf) cf.onsubmit = async (ev) => { ev.preventDefault(); const b = $('#cbody').value.trim(); if (!b) return; try { await api.addComment(id, b); toast('Comment posted'); render(); } catch (err) { toast(err.message); } };
-  $$('[data-cdel]').forEach((b) => b.onclick = async () => { if (!confirm('Delete this comment?')) return; await sb.from('journal_comments').delete().eq('id', b.dataset.cdel); render(); });
-  $$('[data-emo]').forEach((b) => b.onclick = () => { const i = $('#cbody'); if (!i) return; i.value = (i.value + ' ' + b.dataset.emo).trim().slice(0, 300); i.focus(); });
-  $$('[data-cedit]').forEach((b) => b.onclick = () => {
-    const row = b.closest('[data-cid]'); const span = $('.cbody', row); const old = span.textContent;
-    span.innerHTML = `<form class="row" style="margin-top:4px"><input class="input" maxlength="300" aria-label="Edit comment"><button class="btn small primary">Save</button><button type="button" class="btn small ghost">Cancel</button></form>`;
-    const f = $('form', span); const inp = $('input', f); inp.value = old; inp.focus();
-    $('button.ghost', f).onclick = () => { span.textContent = old; };
-    f.onsubmit = async (ev) => { ev.preventDefault(); const v = inp.value.trim(); if (!v) return; try { await api.editComment(b.dataset.cedit, v); toast('Comment updated ✅'); render(); } catch (err) { toast(err.message); } };
-  });
+  // comments + replies, all in place (journal-thread.js)
+  import('./journal-thread.js').then((m) => m.mountThread($('#comments'), { entryId: id, mine, open: !!(e.is_public || mine), api, sb, S, esc, ago, toast, premium })).catch(() => {});
 }
 
 /* full-screen photo viewer with swipe/arrow keys */
@@ -1411,7 +1396,7 @@ async function Account(main, r) {
   $('#share').onclick = async () => {
     const text = `Join me on SpeedCurrency: plan trips with a Claude-powered assistant, journal your travels and convert money. ${invite}`;
     if (navigator.share) { try { await navigator.share({ title: 'SpeedCurrency', text, url: invite }); } catch { /* cancelled */ } }
-    else { try { await navigator.clipboard.writeText(invite); toast('Invite link copied'); } catch { $('#inv').select(); } }
+    else { try { await navigator.clipboard.writeText(invite); toast('Invite link copied'); } catch { $('#inv').select(); toast('Press and hold the link above to copy it'); } }
   };
   $('#pw').onclick = () => modal(`<h2>Change password</h2><form class="stack" id="pwf" style="margin-top:12px">
       <div class="field"><label for="npw">New password</label><input class="input" id="npw" type="password" minlength="10" autocomplete="new-password" required aria-describedby="pwerr"></div>
@@ -1507,7 +1492,7 @@ async function Explore(main) {
   // Map with travellers' photo pins, town zoom, "what are you looking for" and place windows (explore-map.js)
   (await import('./town-finder.js')).mountTownFinder($('#exfind'), { esc, api, placeSearch, tier, modal, icon, gmaps, ago, sb, S, DEMO });
   const { mountExploreMap } = await import('./explore-map.js');
-  cleanup = await mountExploreMap($('#exmap'), { esc, api, loadMapLib, placeSearch, modal, reviewSheet, feed, people, urlOf });
+  cleanup = await mountExploreMap($('#exmap'), { esc, api, loadMapLib, placeSearch, modal, reviewSheet, feed, people, urlOf, sb, S, DEMO, ago, toast });
   // Venmo-style emoji reactions under every journey
   const REACTS = ['❤️', '🔥', '😍', '👏', '🌍', '😂'];
   const all = await api.reactions(feed.map((e) => e.id)).catch(() => []);
@@ -1922,6 +1907,14 @@ function eftFlow(pay, onDone) {
 }
 async function Admin(main, r) {
   if (!S.isAdmin) { main.innerHTML = '<div class="notice">Admins only.</div>'; return; }
+  // Admin workspace tabs: Overview (below) + Tracker / Members / Comments (admin-plus.js)
+  const v = ['tracker', 'members', 'comments'].includes(r.q.get('v')) ? r.q.get('v') : 'overview';
+  const wsTabs = `<nav class="seg ad-tabs" aria-label="Admin workspace">${[['overview', 'Overview'], ['tracker', 'Tracker'], ['members', 'Members'], ['comments', 'Comments']].map(([k, l]) => `<a href="#/admin${k === 'overview' ? '' : '?v=' + k}" aria-current="${k === v ? 'page' : 'false'}">${l}</a>`).join('')}</nav>`;
+  if (v !== 'overview') {
+    main.innerHTML = `<div class="page-head"><div><span class="eyebrow">🛡️ Admin workspace</span><h1>${{ tracker: 'Data tracker', members: 'Members', comments: 'Place comments' }[v]}</h1></div></div>${wsTabs}<div id="adbox"></div>`;
+    try { await (await import('./admin-plus.js')).AdminPlus($('#adbox'), v, { sb, esc, fmtDate, ago, toast, money }); } catch (e) { $('#adbox').innerHTML = `<div class="notice">${esc(e.message)}</div>`; }
+    return;
+  }
   const status = r.q.get('s') || 'pending';
   const [rows, ov] = await Promise.all([api.adminPayments(status), api.adminOverview().catch(() => null)]);
   let usdPerNad = 0; try { usdPerNad = (await loadRates('nad')).table.usd || 0; } catch { /* offline */ }
@@ -1944,7 +1937,7 @@ async function Admin(main, r) {
     <details class="card reveal" style="margin:12px 0"><summary><b>Recent activity</b></summary><div class="list" style="margin-top:8px">${(ov.recent || []).slice(0, 15).map((x) => `<div class="row between"><span>${{ signup: '👋', payment: '💳', review: '⭐' }[x.kind] || '•'} ${esc(x.text)}</span><span class="small muted">${ago(x.at)}</span></div>`).join('')}</div></details>` : '';
   const tab = (k, l) => `<a class="btn small ${status === k ? 'dark' : 'ghost'}" href="#/admin?s=${k}">${l}</a>`;
   main.innerHTML = `<div class="page-head"><div><span class="eyebrow">🛡️ Admin</span><h1>Your business</h1><p>Money, members, AI use and payments to approve.</p></div><a class="btn ghost small" href="https://console.anthropic.com/settings/billing" target="_blank" rel="noopener">Claude credits ↗</a></div>
-    ${overview}<h2 style="margin:18px 0 10px">EFT payments</h2>
+    ${wsTabs}${overview}<h2 style="margin:18px 0 10px">EFT payments</h2>
     <div class="row wrap" style="margin-bottom:12px">${tab('pending', 'To check')}${tab('paid', 'Paid')}${tab('rejected', 'Rejected')}${tab('all', 'All')}<button class="btn small ghost" id="csv">Download CSV</button></div>
     <div class="stack">${rows.length ? rows.map((x) => `<div class="card stack" style="padding:16px">
       <div class="row between wrap"><b>${esc(x.display_name || x.email)}</b><span class="badge ${x.status === 'paid' ? 'dark' : ''}">${esc(x.status)}</span></div>
@@ -1997,4 +1990,6 @@ if (sb) sb.auth.onAuthStateChange((ev) => { if (ev === 'SIGNED_OUT') { S.user = 
 await boot();
 await handlePaymentReturn();
 render();
+// My schedule: a reminder when a planned trip is 9 days away or closer (schedule.js)
+if (S.user) import('./schedule.js').then((m) => m.checkSchedule({ api, toast, uid: S.user.id })).catch(() => {});
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});

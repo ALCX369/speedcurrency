@@ -6,7 +6,15 @@
 
 import { mountSwipe, safeImg } from './explore-swipe.js';
 
-const TOWNS = ['Windhoek', 'Swakopmund', 'Walvis Bay', 'Ondangwa', 'Oshakati', 'Rundu', 'Katima Mulilo', 'Lüderitz', 'Keetmanshoop', 'Cape Town', 'Johannesburg', 'Durban'];
+// Explore follows the country you pick (Namibia / South Africa): its towns and its big attractions
+const REGION = {
+  NA: { name: 'Namibia', towns: ['Windhoek', 'Swakopmund', 'Walvis Bay', 'Lüderitz', 'Keetmanshoop', 'Ondangwa', 'Oshakati', 'Rundu', 'Katima Mulilo', 'Otjiwarongo', 'Tsumeb'],
+    sights: ['Sossusvlei', 'Etosha National Park', 'Fish River Canyon', 'Spitzkoppe', 'Kolmanskop', 'Epupa Falls'] },
+  ZA: { name: 'South Africa', towns: ['Cape Town', 'Johannesburg', 'Durban', 'Pretoria', 'Stellenbosch', 'Franschhoek', 'Hermanus', 'Knysna', 'Gqeberha', 'Bloemfontein', 'Mbombela'],
+    sights: ['Table Mountain', 'Kruger National Park', 'Cape Point', 'Drakensberg', 'Robben Island', 'Blyde River Canyon'] },
+};
+export const regionNow = () => { try { return localStorage.getItem('sc_cc') === 'ZA' ? 'ZA' : 'NA'; } catch { return 'NA'; } };
+let TOWNS = REGION[regionNow()].towns;
 export const CATS = [ // key, label, Overpass filters (';' separated), radius m
   ['food', 'Restaurants', 'nwr["amenity"~"^(restaurant|cafe|fast_food|bar|pub)$"]', 6000],
   ['fuel', 'Fuel & garages', 'nwr["amenity"="fuel"];nwr["shop"~"^(car_repair|tyres|car_parts)$"]', 8000],
@@ -38,7 +46,9 @@ export async function overpass(c, cat) {
     const t = e.tags; const lat = e.lat ?? e.center?.lat, lng = e.lon ?? e.center?.lon;
     return { key: `${e.type}/${e.id}`, name: t.name, lat, lng, dist: km(c, { lat, lng }),
       kind: (t.cuisine || t.tourism || t.leisure || t.amenity || t.shop || '').replace(/_/g, ' ').replace(/;/g, ', '),
-      phone: t.phone || t['contact:phone'] || '', web: /^https?:\/\//.test(t.website || '') ? t.website : '', hours: t.opening_hours || '',
+      phone: t.phone || t['contact:phone'] || '', web: /^https?:\/\//.test(t.website || t['contact:website'] || '') ? (t.website || t['contact:website']) : '', hours: t.opening_hours || '',
+      whatsapp: t['contact:whatsapp'] || '', email: /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(t.email || t['contact:email'] || '') ? (t.email || t['contact:email']) : '',
+      facebook: /^https:\/\/(www\.|m\.)?facebook\.com\//.test(t['contact:facebook'] || '') ? t['contact:facebook'] : '', instagram: /^https:\/\/(www\.)?instagram\.com\//.test(t['contact:instagram'] || '') ? t['contact:instagram'] : '',
       street: [t['addr:street'], t['addr:housenumber']].filter(Boolean).join(' ') };
   }).sort((a, b) => a.dist - b.dist).slice(0, 30);
 }
@@ -51,8 +61,18 @@ async function commonsPhotos(p) { // free photos taken at this spot (Wikimedia C
   } catch { return []; }
 }
 
+async function townPhotos(town) { // a few more free photos of a town (Wikimedia Commons file search)
+  const SA = ['Cape Town', 'Johannesburg', 'Durban', 'Pretoria', 'Stellenbosch'];
+  const q = `${town} ${SA.includes(town) ? 'South Africa' : 'Namibia'}`;
+  const u = `https://commons.wikimedia.org/w/api.php?action=query&generator=search&gsrsearch=${encodeURIComponent(q)}&gsrnamespace=6&gsrlimit=8&prop=imageinfo&iiprop=url&iiurlwidth=800&format=json&origin=*`;
+  try {
+    const j = await fetch(u, { signal: AbortSignal.timeout(8000) }).then((r) => r.json());
+    return Object.values(j?.query?.pages || {}).sort((a, b) => (a.index || 0) - (b.index || 0)).map((pg) => pg.imageinfo?.[0]?.thumburl).filter((x) => x && /\.(jpe?g|webp)/i.test(x)).slice(0, 6);
+  } catch { return []; }
+}
+
 export async function mountExploreMap(root, deps) {
-  const { esc, api, loadMapLib, placeSearch, modal, reviewSheet, feed, people, urlOf } = deps;
+  const { esc, api, loadMapLib, placeSearch, modal, reviewSheet, feed, people, urlOf, sb, S, DEMO, ago, toast } = deps;
   const name = (a) => (a ? (a.display_name || '@' + (a.username || 'traveller')) : 'Traveller');
   const st = { town: null, center: null, cat: null, places: [], markers: [] };
 
@@ -61,7 +81,7 @@ export async function mountExploreMap(root, deps) {
   root.innerHTML = `
     <form class="searchbar" id="exq" role="search"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
       <label class="sr" for="exqi">Find a town</label><input id="exqi" placeholder="Find a town in Namibia or South Africa" autocomplete="off"><button class="btn small primary">Go</button></form>
-    <div class="chips mood" id="extowns" aria-label="Towns">${TOWNS.map((t) => `<button type="button" class="chip" data-town="${esc(t)}">${esc(t)}</button>`).join('')}</div>
+    <div class="chips mood" id="extowns" aria-label="Towns">${[...TOWNS, ...REGION[regionNow()].sights].map((t) => `<button type="button" class="chip" data-town="${esc(t)}">${esc(t)}</button>`).join('')}</div>
     <div class="ex-bar"><div class="seg" role="group" aria-label="View"><button type="button" data-v="swipe" aria-pressed="true">Swipe</button><button type="button" data-v="map" aria-pressed="false">Map</button></div>
       <a class="chip tg-link" id="exguide" hidden href="#/explore">📖 Guide</a><button type="button" class="chip" id="exsaved">♥ Saved <b>${saved().length}</b></button></div>
     <div class="ex-cats chips" id="excats" hidden aria-label="What are you looking for?">${CATS.map(([k, l]) => `<button type="button" class="chip" data-cat="${k}" aria-pressed="false">${esc(l)}</button>`).join('')}</div>
@@ -151,6 +171,26 @@ export async function mountExploreMap(root, deps) {
     } catch (err) { if (mine === req) oops(err, () => pickCat(key)); }
   };
 
+  // every way to reach a place, from OpenStreetMap tags (only what the map knows; nothing invented)
+  const contactBlock = (p) => {
+    const tel = (s) => String(s).split(';')[0].replace(/[^+\d]/g, '');
+    const wa = tel(p.whatsapp || p.phone || '');
+    const rows = [
+      p.phone && ['📞', 'Call', p.phone.split(';')[0], `tel:${tel(p.phone)}`],
+      wa.length >= 8 && ['💬', 'WhatsApp', p.whatsapp ? 'Chat on WhatsApp' : 'Try WhatsApp on this number', `https://wa.me/${wa.replace(/^\+/, '')}`],
+      p.email && ['✉️', 'Email', p.email, `mailto:${p.email}`],
+      p.web && ['🌐', 'Website', p.web.replace(/^https?:\/\/(www\.)?/, '').replace(/\/$/, '').slice(0, 40), p.web],
+      p.facebook && ['📘', 'Facebook', 'Facebook page', p.facebook],
+      p.instagram && ['📸', 'Instagram', 'Instagram', p.instagram],
+      p.hours && ['🕒', 'Hours', p.hours, ''],
+      p.street && ['📍', 'Address', p.street, gmaps(`${p.name} ${p.street}`)],
+    ].filter(Boolean);
+    return rows.length ? `<div class="pw-contact" aria-label="Contact details">${rows.map(([ic, l, v, href]) => (href
+      ? `<a class="pw-crow" href="${esc(href)}" ${/^https/.test(href) ? 'target="_blank" rel="noopener noreferrer"' : ''}><span aria-hidden="true">${ic}</span><span><small>${esc(l)}</small><b>${esc(v)}</b></span></a>`
+      : `<div class="pw-crow"><span aria-hidden="true">${ic}</span><span><small>${esc(l)}</small><b>${esc(v)}</b></span></div>`)).join('')}</div>`
+      : '<p class="small muted" style="margin:0">No contact details on the map yet. Directions & reviews opens Google Maps.</p>';
+  };
+
   // The place window: photos of the place, then the travellers who have been there
   const placeWindow = async (p) => {
     p.town = st.town;
@@ -159,17 +199,28 @@ export async function mountExploreMap(root, deps) {
       <span class="eyebrow">${esc(p.kind || 'Place')} · ${esc(st.town || '')}</span><h2>${esc(p.name)}</h2>
       <p class="small muted" style="margin:0">${[p.street, dist(p.dist) + ' from the centre', p.hours].filter(Boolean).map(esc).join(' · ')}</p>
       <div class="row wrap"><a class="btn small primary" href="${esc(gmaps(`${p.name} ${p.lat},${p.lng}`))}" target="_blank" rel="noopener noreferrer">Directions & reviews</a>
-        ${p.phone ? `<a class="btn small ghost" href="tel:${esc(p.phone.split(';')[0].replace(/[^+\d]/g, ''))}">Call</a>` : ''}
-        ${p.web ? `<a class="btn small ghost" href="${esc(p.web)}" target="_blank" rel="noopener noreferrer">Website</a>` : ''}
-        <button class="btn small ghost" id="pwrev">Write a review</button></div>
+        <button class="btn small ghost" id="pwsch">📅 Add to my schedule</button><button class="btn small ghost" id="pwbeen">✓ I've been here</button><button class="btn small ghost" id="pwrev">Write a review</button></div>
+      ${contactBlock(p)}
       <h3>Travellers who've been here</h3><div id="pwppl" class="pw-ppl"><div class="skeleton"><span></span></div></div>
+      <div id="pwcm"></div>
       <button class="btn small ghost" data-close style="align-self:flex-start">Close</button></div>`, async (pnl, close) => {
       pnl.querySelector('#pwrev').onclick = () => { close(); reviewSheet(p, () => {}); };
+      // My schedule: date + hope, then the nearest places of the same kind as suggestions
+      pnl.querySelector('#pwbeen').onclick = async () => { close(); (await import('./been-here.js')).beenHereSheet({ place: { name: p.name, town: st.town, lat: p.lat, lng: p.lng }, api, modal, esc, toast }); };
+      pnl.querySelector('#pwsch').onclick = async () => {
+        const town = st.town; const pool = st.places.slice();
+        close();
+        (await import('./schedule.js')).scheduleSheet({ place: { name: p.name, town, kind: p.kind, key: p.key, img: p.img }, api, modal, esc, toast,
+          similar: async () => pool.filter((x) => x.key !== p.key).sort((a, b) => km(p, a) - km(p, b)).slice(0, 4)
+            .map((x) => ({ name: x.name, sub: `${cap(x.kind || 'Place')} · ${dist(km(p, x))} from ${p.name}`, open: () => placeWindow(x) })) });
+      };
+      import('./place-comments.js').then((m) => m.mountComments(pnl.querySelector('#pwcm'), { key: p.key, name: p.name, sb, S, DEMO, esc, ago, toast, people: api.profilesById })).catch(() => {});
       try {
       // 1) photos of this spot
       const [pics, reviews] = await Promise.all([commonsPhotos(p), api.reviews([p.key]).catch(() => [])]);
       const revPics = reviews.filter((r) => r.photo_path).map((r) => api.reviewPhoto(r.photo_path));
       const all = [...revPics, ...pics];
+      p.img = pics[0] || p.img; // a free photo to show with the plan in My schedule
       const box = pnl.querySelector('#pwpics');
       if (box) box.innerHTML = all.length ? all.map((u) => `<span style="background-image:url('${esc(safeImg(u))}')"></span>`).join('') : '<p class="small muted" style="margin:0">No photos yet. Visit, then add yours in a review or your journal.</p>';
       // 2) people: public memories within 600 m or naming the place, and member reviews
@@ -190,22 +241,27 @@ export async function mountExploreMap(root, deps) {
   };
 
   // Swipe deck (explore-swipe.js): towns and travellers' memories first, then the places in a town
-  const SA = ['Cape Town', 'Johannesburg', 'Durban'];
-  const startCards = [];
   const mems = feed.filter((e) => urlOf[e.photos?.[0]]);
-  TOWNS.forEach((t, k) => {
-    startCards.push({ id: 'town:' + t, title: t, icon: '◎', badge: 'Town', sub: `${SA.includes(t) ? 'South Africa' : 'Namibia'} · swipe right to explore`, tags: ['Food', 'Sights', 'Stays'], data: { type: 'town', t } });
-    const e = mems[k]; if (e) startCards.push({ id: 'mem:' + e.id, img: safeImg(urlOf[e.photos[0]]), title: e.title, badge: 'Traveller', sub: `${name(people[e.user_id])}${e.place_name ? ' · 📍 ' + e.place_name : ''}`, tags: [e.rating ? '★'.repeat(e.rating) : '', (e.photos || []).length > 1 ? `${e.photos.length} photos` : ''], data: { type: 'mem', e } });
-  });
+  // towns, big attractions and travellers' memories, mixed, for one country
+  const startCardsFor = (cc) => {
+    const R = REGION[cc]; const out = [];
+    R.towns.forEach((t, k) => {
+      out.push({ id: 'town:' + t, title: t, icon: '◎', badge: 'Town', sub: `${R.name} · swipe right to explore`, tags: ['Food', 'Sights', 'Stays'], data: { type: 'town', t } });
+      const s = R.sights[k]; if (s) out.push({ id: 'sight:' + s, title: s, icon: '★', badge: 'Must-see', sub: `${R.name} · tap ⓘ for the guide`, tags: ['Photos', 'Tips', 'Comments'], data: { type: 'town', t: s } });
+      const e = mems[k]; if (e) out.push({ id: 'mem:' + e.id, img: safeImg(urlOf[e.photos[0]]), title: e.title, badge: 'Traveller', sub: `${name(people[e.user_id])}${e.place_name ? ' · 📍 ' + e.place_name : ''}`, tags: [e.rating ? '★'.repeat(e.rating) : '', (e.photos || []).length > 1 ? `${e.photos.length} photos` : ''], data: { type: 'mem', e } });
+    });
+    return out;
+  };
   const deck = mountSwipe(root.querySelector('#exdeck'), {
-    cards: startCards, esc, yesLabel: 'Yes', noLabel: 'Skip',
+    cards: startCardsFor(regionNow()), esc, yesLabel: 'Yes', noLabel: 'Skip',
     empty: 'That was the whole deck. Pick a town above, or switch to <b>Map</b>.',
     loadImg: async (c) => {
       if (c.data.type === 'town') {
         const j = await fetch(`https://en.wikipedia.org/w/api.php?action=query&titles=${encodeURIComponent(c.data.t)}&redirects=1&prop=pageimages&pithumbsize=800&format=json&origin=*`, { signal: AbortSignal.timeout(8000) }).then((r) => r.json());
-        return Object.values(j?.query?.pages || {})[0]?.thumbnail?.source || '';
+        const lead = Object.values(j?.query?.pages || {})[0]?.thumbnail?.source || '';
+        return [lead, ...(await townPhotos(c.data.t))].filter(Boolean);
       }
-      if (c.data.type === 'place') return (await commonsPhotos(c.data.p))[0] || '';
+      if (c.data.type === 'place') return commonsPhotos(c.data.p);
       return '';
     },
     onOpen: (c) => (c.data.type === 'town' ? (location.hash = '#/town/' + encodeURIComponent(c.data.t)) : c.data.type === 'mem' ? memoryWindow(c.data.e) : placeWindow(c.data.p)),
@@ -235,8 +291,16 @@ export async function mountExploreMap(root, deps) {
 
   root.querySelector('#exq').onsubmit =(ev) => { ev.preventDefault(); const q = root.querySelector('#exqi').value.trim(); if (q.length > 1) goTown(q); };
   root.querySelector('#extowns').addEventListener('click', (ev) => { const b = ev.target.closest('[data-town]'); if (b) goTown(b.dataset.town); });
+  // the Namibia / South Africa switch (town-finder.js) re-deals the chips and the deck for that country
+  const onCountry = (ev) => {
+    const cc = ev.detail?.cc === 'ZA' ? 'ZA' : 'NA'; TOWNS = REGION[cc].towns;
+    root.querySelector('#extowns').innerHTML = [...REGION[cc].towns, ...REGION[cc].sights].map((t) => `<button type="button" class="chip" data-town="${esc(t)}">${esc(t)}</button>`).join('');
+    deck?.set(startCardsFor(cc));
+    if (map && !st.town) map.fitBounds(cc === 'ZA' ? [[16.3, -35], [33, -22]] : [[11.7, -29], [25.3, -16.9]], { padding: 30, duration: 800 });
+  };
+  window.addEventListener('sc:country', onCountry);
   root.querySelector('#excats').addEventListener('click', (ev) => { const b = ev.target.closest('[data-cat]'); if (b) pickCat(b.dataset.cat); });
   rail.addEventListener('click', (ev) => { const b = ev.target.closest('[data-p]'); if (b) { const p = st.places[+b.dataset.p]; map?.flyTo({ center: [p.lng, p.lat], zoom: 16 }); placeWindow(p); } });
   const askTown = new URLSearchParams(location.hash.split('?')[1] || '').get('town'); if (askTown) goTown(askTown); // from a Town Guide's "Swipe places"
-  return () => map?.remove();
+  return () => { window.removeEventListener('sc:country', onCountry); map?.remove(); };
 }

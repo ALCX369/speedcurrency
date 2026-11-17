@@ -80,7 +80,11 @@ export async function JourneyStudio(main, deps) {
   const views = {
     grid() {
       if (!entries.length) { box.innerHTML = '<div class="empty">No memories yet. <a href="#/journal?new=1">Add your first one</a>.</div>'; return; }
-      box.innerHTML = `<div class="pf-grid">${entries.map((e) => { const c = coverOf(e); return `<a class="pf-cell" href="#/journal/${esc(e.id)}" style="${c ? `background-image:url('${esc(c)}')` : ''}" aria-label="${esc(e.title)}">${c ? '' : `<span>${esc(e.title.slice(0, 40))}</span>`}${(e.photos || []).length > 1 ? `<i>${e.photos.length}</i>` : ''}${e.is_public ? '' : '<i class="lock">🔒</i>'}</a>`; }).join('')}</div>`;
+      // grouped by year: newest year on top, oldest at the bottom (entries are already newest first)
+      const years = [];
+      for (const e of entries) { const y = String(dateOf(e)).slice(0, 4) || 'Undated'; const g = years.find((x) => x.y === y); if (g) g.list.push(e); else years.push({ y, list: [e] }); }
+      const cell = (e) => { const c = coverOf(e); return `<a class="pf-cell" href="#/journal/${esc(e.id)}" style="${c ? `background-image:url('${esc(c)}')` : ''}" aria-label="${esc(e.title)}">${c ? '' : `<span>${esc(e.title.slice(0, 40))}<small>${esc((e.place_name || '').split(',')[0])}</small></span>`}${(e.photos || []).length > 1 ? `<i>${e.photos.length}</i>` : ''}${e.is_public ? '' : '<i class="lock">🔒</i>'}</a>`; };
+      box.innerHTML = years.map(({ y, list }) => `<section class="js-year"><h3><span>${esc(y)}</span><small>${list.length} memor${list.length === 1 ? 'y' : 'ies'}</small></h3><div class="pf-grid">${list.map(cell).join('')}</div></section>`).join('');
     },
     stamps() {
       const groups = [['NA', '🇳🇦 Namibia'], ['ZA', '🇿🇦 South Africa']];

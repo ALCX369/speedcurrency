@@ -31,12 +31,12 @@ export function openTownPreview(t, deps) {
 /** The searchable finder: country switch, live suggestions, keyboard friendly. */
 export function mountTownFinder(el, deps) {
   const { esc } = deps;
-  let cc = 'NA', t = 0, req = 0, list = [];
+  let cc = (() => { try { return localStorage.getItem('sc_cc') === 'ZA' ? 'ZA' : 'NA'; } catch { return 'NA'; } })(), t = 0, req = 0, list = [];
   el.innerHTML = `
     <div class="tf">
-      <div class="seg tf-cc" role="group" aria-label="Country"><button type="button" data-cc="NA" aria-pressed="true">🇳🇦 Namibia</button><button type="button" data-cc="ZA" aria-pressed="false">🇿🇦 South Africa</button></div>
+      <div class="seg tf-cc" role="group" aria-label="Country"><button type="button" data-cc="NA" aria-pressed="${cc === 'NA'}">🇳🇦 Namibia</button><button type="button" data-cc="ZA" aria-pressed="${cc === 'ZA'}">🇿🇦 South Africa</button></div>
       <form class="searchbar tf-bar" role="search"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
-        <label class="sr" for="tfq">Search a town</label><input id="tfq" placeholder="Search a town, e.g. Ondangwa" autocomplete="off" role="combobox" aria-expanded="false" aria-controls="tfres"><button class="btn small primary">Go</button></form>
+        <label class="sr" for="tfq">Search a town</label><input id="tfq" placeholder="Search a town, e.g. ${cc === 'ZA' ? 'Stellenbosch' : 'Ondangwa'}" autocomplete="off" role="combobox" aria-expanded="false" aria-controls="tfres"><button class="btn small primary">Go</button></form>
       <div class="tf-res" id="tfres" role="listbox" hidden></div>
     </div>`;
   const inp = el.querySelector('#tfq'); const res = el.querySelector('#tfres');
@@ -61,5 +61,7 @@ export function mountTownFinder(el, deps) {
     const b = e.target.closest('[data-cc]'); if (!b) return; cc = b.dataset.cc;
     el.querySelectorAll('[data-cc]').forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
     inp.placeholder = cc === 'NA' ? 'Search a town, e.g. Ondangwa' : 'Search a town, e.g. Stellenbosch'; search(); inp.focus();
+    try { localStorage.setItem('sc_cc', cc); } catch { /* private mode */ }
+    window.dispatchEvent(new CustomEvent('sc:country', { detail: { cc } })); // Explore re-deals its towns and attractions
   });
 }

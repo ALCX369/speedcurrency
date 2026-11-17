@@ -100,7 +100,7 @@ async function weather(c) {
   return t == null ? '' : `${icon} ${Math.round(t)}°C now`;
 }
 
-export async function TownGuide(main, r, { esc, api, placeSearch, tier, modal, icon, gmaps, ago, sb, S, DEMO }, opts = {}) {
+export async function TownGuide(main, r, { esc, api, placeSearch, tier, modal, icon, gmaps, ago, sb, S, DEMO, toast = () => {} }, opts = {}) {
   const town = decodeURIComponent(r.id || '').trim();
   if (!town) { location.hash = '#/explore'; return; }
   const premium = tier() !== 'free';
@@ -112,7 +112,8 @@ export async function TownGuide(main, r, { esc, api, placeSearch, tier, modal, i
       <p id="tgintro" class="tg-intro"></p>
       <div class="row wrap tg-acts"><span class="tg-wx" id="tgwx"></span>
         <a class="btn small primary" href="#/explore?town=${encodeURIComponent(town)}">Swipe places</a>
-        <a class="btn small ghost" href="#/trips?new=1&dest=${encodeURIComponent(town)}">${icon('plus', 16)} Save trip</a>
+        <button type="button" class="btn small ghost" id="tgsch">📅 Add to my schedule</button>
+        <button type="button" class="btn small ghost" id="tgbeen">✓ I've been here</button>
         ${opts.popup ? `<a class="btn small ghost" data-close href="#/town/${encodeURIComponent(town)}">Full page</a>` : ''}</div></header>
     <div class="tg-facts" id="tgfacts" aria-label="Quick facts"></div>
     <section class="tg-askbox"><form class="tg-ask" id="tgask" role="search"><label class="sr" for="tgq">Ask about ${esc(town)}</label>
@@ -132,11 +133,14 @@ export async function TownGuide(main, r, { esc, api, placeSearch, tier, modal, i
     <section class="tg-sec" id="tg-events"><h2>🎉 Events & news</h2><div id="tgnews"><div class="skeleton"><span></span></div></div></section>
     <section class="tg-sec tg-hu" id="tghu" aria-label="Heads-ups for ${esc(town)}"></section>
     <section class="tg-sec"><h2>Travellers who've been here</h2><div id="tgppl" class="tg-ppl"><div class="skeleton"><span></span></div></div></section>
+    <section class="tg-sec" id="tg-comments" aria-label="Comments on ${esc(town)}"></section>
     <p class="small muted" id="tgcred">Guide listings: Wikivoyage (CC BY-SA). Photos: Wikimedia Commons. Places: © OpenStreetMap contributors.</p>`;
 
   // jump chips scroll inside the page (the app uses # for routing)
   main.querySelector('.tg-jump').addEventListener('click', (e) => { const a = e.target.closest('[data-jump]'); if (!a) return; e.preventDefault(); main.querySelector('#tg-' + a.dataset.jump)?.scrollIntoView({ behavior: 'smooth', block: 'start' }); });
   const alive = () => document.body.contains(main.querySelector('#tghero'));
+  // comments anyone signed in can post (place-comments.js)
+  import('./place-comments.js').then((m) => m.mountComments(main.querySelector('#tg-comments'), { key: 'town:' + town.toLowerCase(), name: town, sb, S, DEMO, esc, ago, toast, people: api.profilesById })).catch(() => {});
 
   const G = { listings: [], fuel: [], sport: [], malls: [], news: [], wx: '' }; // what the ask box can answer from
   let c = null;
@@ -161,11 +165,24 @@ export async function TownGuide(main, r, { esc, api, placeSearch, tier, modal, i
   }).catch(() => {});
   if (c) weather(c).then((t) => { G.wx = t; if (alive()) main.querySelector('#tgwx').textContent = t; }).catch(() => {});
 
+  // My schedule: date + hope; suggestions = the nearest other towns (OpenStreetMap)
+  let townImg = '';
+  main.querySelector('#tgbeen')?.addEventListener('click', async () => (await import('./been-here.js')).beenHereSheet({ place: { name: town, lat: c?.lat, lng: c?.lng }, api, modal, esc, toast }));
+  main.querySelector('#tgsch')?.addEventListener('click', async () => {
+    (await import('./schedule.js')).scheduleSheet({ place: { name: town, kind: 'town', key: 'town:' + town.toLowerCase(), img: townImg }, api, modal, esc, toast,
+      similar: async () => {
+        if (!c) return [];
+        const near = await overpass(c, ['towns', 'Towns', 'node["place"~"^(town|city)$"]', 220000]);
+        return near.filter((x) => x.name.toLowerCase() !== town.toLowerCase()).slice(0, 4)
+          .map((x) => ({ name: x.name, sub: `${Math.round(x.dist)} km from ${town}`, open: () => { location.hash = '#/town/' + encodeURIComponent(x.name); } }));
+      } });
+  });
   // photo gallery: tap to enlarge
   const gal = main.querySelector('#tggal');
   if (c) gallery(c).then((pics) => {
     if (!alive()) return;
     pics = pics.map(safeImg).filter(Boolean);
+    townImg = pics.find((u) => /^https:\/\/upload\.wikimedia\.org\//.test(u)) || '';
     gal.innerHTML = pics.length ? pics.map((u, i) => `<button type="button" class="tg-pic" data-i="${i}" style="background-image:url('${esc(u)}')" aria-label="Photo ${i + 1} of ${esc(town)}"></button>`).join('') : '';
     if (!pics.length) gal.remove();
     gal.onclick = (e) => { const b = e.target.closest('[data-i]'); if (b) modal(`<div class="pw"><img class="tg-big" src="${esc(pics[+b.dataset.i])}" alt="Photo of ${esc(town)}"><p class="small muted" style="margin:0">Photo: Wikimedia Commons</p><button class="btn small ghost" data-close style="align-self:flex-start">Close</button></div>`); };
@@ -228,9 +245,18 @@ export async function TownGuide(main, r, { esc, api, placeSearch, tier, modal, i
     const feed = (await api.feed()).filter((e) => c && e.lat != null && Math.hypot(e.lat - c.lat, (e.lng - c.lng) * Math.cos(c.lat * Math.PI / 180)) < 0.18);
     const people = await api.profilesById(feed.map((e) => e.user_id)).catch(() => ({}));
     const seen = [...new Set(feed.map((e) => e.user_id))];
+    const AV = await import('./avatars.js');
+    // photo wall: photos travellers tagged in this town, each linked to the person's profile
+    const shots = feed.filter((e) => e.photos?.length).slice(0, 12);
+    const urls = shots.length ? await api.photoUrls(shots.map((e) => e.photos[0])).catch(() => []) : [];
     if (!alive()) return;
-    ppl.innerHTML = seen.length ? seen.map((uid) => { const a = people[uid]; const n = a ? (a.display_name || '@' + (a.username || 'traveller')) : 'Traveller';
-      return `<a class="tg-person" href="#/u/${esc(uid)}"><span class="avatar">${esc(n[0].toUpperCase())}</span><small>${esc(n.split(' ')[0].slice(0, 12))}</small></a>`; }).join('')
+    const wall = shots.map((e, i) => ({ e, u: safeImg(urls[i]) })).filter((x) => x.u);
+    if (wall.length) ppl.insertAdjacentHTML('beforebegin', `<div class="tg-wall" aria-label="Photos travellers tagged in ${esc(town)}">${wall.map(({ e, u }) => { const a = people[e.user_id];
+      return `<a class="tg-shot" href="#/u/${esc(e.user_id)}" style="background-image:url('${esc(u)}')" aria-label="${esc(e.title)} by ${esc(AV.nameOf(a))}">
+        <span class="tg-shot-by">${AV.avatarHtml(a, esc)}<span><b>${esc(AV.nameOf(a))}</b>${AV.bizLabel(a) ? `<small class="tg-biz">${esc(AV.bizLabel(a))}</small>` : `<small>${esc(e.title.slice(0, 40))}</small>`}</span></span></a>`; }).join('')}</div>`);
+    // people cards: picture, name, business category, a line of their bio
+    ppl.innerHTML = seen.length ? seen.map((uid) => { const a = people[uid];
+      return `<a class="tg-person" href="#/u/${esc(uid)}">${AV.avatarHtml(a, esc)}<b>${esc(AV.nameOf(a).split(' ')[0].slice(0, 14))}</b>${AV.bizLabel(a) ? `<small class="tg-biz">${esc(AV.bizLabel(a))}</small>` : ''}${a?.status_text ? `<small class="tg-bio">💬 ${esc(a.status_text)}</small>` : a?.bio ? `<small class="tg-bio">${esc(a.bio.slice(0, 60))}</small>` : ''}</a>`; }).join('')
       : `<p class="small muted" style="margin:0">Nobody has shared ${esc(town)} yet. Be the first: add a public memory from your journey.</p>`;
   } catch { if (alive()) ppl.innerHTML = '<p class="small muted" style="margin:0">Could not load travellers right now.</p>'; }
 

@@ -7,6 +7,9 @@ import { STAMP_TOWNS } from './journey-studio.js';
 import { themePicker } from './themes.js';
 import { mountHeadsups } from './headsups.js';
 import { businessBlock, businessInsights } from './business.js';
+import { avatarUrl, bizLabel, pickAvatar } from './avatars.js';
+
+const statusLive = (a) => !!(a?.status_text && a.status_at && Date.now() - new Date(a.status_at) < 7 * 86400000);
 const gmaps = (q) => `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(q)}`;
 
 export async function Profile(main, r, { esc, api, sb, S, DEMO, modal, toast, reportFlow, premium, fmtDate, mountJourney }) {
@@ -34,19 +37,22 @@ export async function Profile(main, r, { esc, api, sb, S, DEMO, modal, toast, re
   main.innerHTML = `
     <header class="pf-hero" style="${hero ? `background-image:linear-gradient(180deg,rgba(13,11,8,.1),rgba(13,11,8,.92)),url('${esc(hero)}')` : ''}">
       ${me ? '<a class="pf-gear" href="#/account?tab=settings" aria-label="Settings">⚙</a>' : ''}
-      <span class="pf-av" aria-hidden="true" style="--pct:${Math.round(pct * 100)}">${esc(name.replace('@', '')[0]?.toUpperCase() || '✦')}${lvlN ? `<i class="pf-lvl">${lvlN}</i>` : ''}</span>
+      <${me ? 'button type="button" id="pfpic" aria-label="Change profile picture"' : 'span aria-hidden="true"'} class="pf-av${avatarUrl(a.avatar_path) ? ' has-pic' : ''}" style="--pct:${Math.round(pct * 100)};${avatarUrl(a.avatar_path) ? `background-image:url('${esc(avatarUrl(a.avatar_path))}')` : ''}">${avatarUrl(a.avatar_path) ? '' : esc(name.replace('@', '')[0]?.toUpperCase() || '✦')}${lvlN ? `<i class="pf-lvl">${lvlN}</i>` : ''}${me ? '<i class="pf-cam" aria-hidden="true">📷</i>' : ''}</${me ? 'button' : 'span'}>
+      ${bizLabel(a) ? `<span class="pf-biz">${esc(bizLabel(a))}${a.biz_town ? ' · ' + esc(a.biz_town) : ''}</span>` : ''}
       <h1>${esc(name)}${me && premium() ? ' <span class="pf-prem" title="Premium member">★ Premium</span>' : ''}</h1>
       <p class="pf-sub">${[a.username ? '@' + a.username : '', a.home_country ? 'from ' + a.home_country : '', level ? level : ''].filter(Boolean).map(esc).join(' · ')}</p>
+      ${statusLive(a) ? `<p class="pf-status" id="pfstatus">💬 ${esc(a.status_text)} <small>${esc(fmtDate(a.status_at))}</small></p>` : me ? '<p class="pf-status" id="pfstatus" hidden></p>' : ''}
       ${a.bio ? `<p class="pf-bio">${esc(a.bio)}</p>` : ''}
       ${businessBlock(a, esc, gmaps)}${me && a.account_type === 'business' ? '<div id="pfins"></div>' : ''}
       <div class="pf-stats"><span><b>${entries.length}</b>memories</span><span><b>${stamps}</b>stamps</span><span><b>${photos}</b>photos</span>${me ? `<span><b>${streak}🔥</b>best streak</span>` : `<span><b>${places.size}</b>places</span>`}</div>
       <div class="row wrap pf-acts">
-        ${me ? '<a class="btn small primary" href="#/account?tab=settings">Edit profile</a><button type="button" class="btn small ghost" id="pftheme">🎨 Theme</button><a class="btn small ghost" href="#/journal?new=1">＋ Memory</a>'
+        ${me ? '<a class="btn small primary" href="#/account?tab=settings">Edit profile</a><button type="button" class="btn small ghost" id="pfstat">💬 Status</button><button type="button" class="btn small ghost" id="pftheme">🎨 Theme</button><a class="btn small ghost" href="#/journal?new=1">＋ Memory</a>'
           : '<button type="button" class="btn small primary" id="pfchat">💬 Message</button>'}
         <button type="button" class="btn small ghost" id="pfshare">Share</button>
         ${me ? '' : '<button type="button" class="btn small ghost" id="pfmore" aria-label="Report or block">•••</button>'}
       </div>
     </header>
+    ${me ? '<section id="pfsched" aria-label="My schedule (private)"></section>' : ''}
     <section class="pf-hu" id="pfhu" aria-label="Heads-ups"></section>
     <div id="pfjourney"></div>
     <div class="row between pf-tabs" ${me && mountJourney ? 'hidden' : ''}><h2>${me ? 'Your public journey' : `${esc(name.split(' ')[0])}'s journey`}</h2><small class="muted">${places.size ? [...places].slice(0, 3).map(esc).join(' · ') : ''}</small></div>
@@ -62,9 +68,28 @@ export async function Profile(main, r, { esc, api, sb, S, DEMO, modal, toast, re
 
   main.querySelector('#pfshare').onclick = async () => {
     const link = `${location.origin}${location.pathname}#/u/${encodeURIComponent(uid)}`;
-    try { if (navigator.share) await navigator.share({ title: `${name} on SpeedCurrency`, url: link }); else { await navigator.clipboard.writeText(link); toast('Profile link copied'); } } catch { /* cancelled */ }
+    try { if (navigator.share) await navigator.share({ title: `${name} on SpeedCurrency`, url: link }); else { await navigator.clipboard.writeText(link); toast('Profile link copied'); } } catch (e) { if (e?.name !== 'AbortError') window.prompt('Copy your profile link:', link); } // sharing/copying blocked: show the link to copy by hand
   };
   main.querySelector('#pfmore')?.addEventListener('click', () => reportFlow('user', uid, uid));
+  // status update: one short line ("Currently in Swakopmund"), shown for 7 days
+  main.querySelector('#pfstat')?.addEventListener('click', () => modal(`<form class="pw" id="stf"><span class="eyebrow">Status update</span><h2>What's happening?</h2>
+      <div class="field"><label for="sti">Your status <span class="muted" id="stn">0/60</span></label><input class="input" id="sti" maxlength="60" placeholder="e.g. Currently in Swakopmund 🌊" autocomplete="off" value="${esc(statusLive(a) ? a.status_text : '')}"></div>
+      <p class="small muted" style="margin:0">Shown on your profile for 7 days.</p>
+      <div class="row wrap"><button class="btn small primary">Share status</button>${statusLive(a) ? '<button type="button" class="btn small ghost" id="stclr">Clear</button>' : ''}<button type="button" class="btn small ghost" data-close>Cancel</button></div></form>`, (pnl, close) => {
+    const i = pnl.querySelector('#sti'); const n = () => { pnl.querySelector('#stn').textContent = `${i.value.length}/60`; }; i.oninput = n; n(); i.focus();
+    const saveStatus = async (text) => {
+      try {
+        const patch = { status_text: text || null, status_at: text ? new Date().toISOString() : null };
+        await api.update('profiles', uid, patch); Object.assign(a, patch); if (S.profile) Object.assign(S.profile, patch);
+        const el = main.querySelector('#pfstatus'); el.hidden = !text; el.innerHTML = text ? `💬 ${esc(text)} <small>just now</small>` : '';
+        toast(text ? 'Status shared' : 'Status cleared'); close();
+      } catch (e) { toast(/status|column/i.test(e.message) ? 'Status updates are switching on soon' : e.message); }
+    };
+    pnl.querySelector('#stf').onsubmit = (ev) => { ev.preventDefault(); saveStatus(i.value.trim().slice(0, 60)); };
+    pnl.querySelector('#stclr')?.addEventListener('click', () => saveStatus(''));
+  }));
+  if (me) import('./schedule.js').then((m) => m.mountScheduleCard(main.querySelector('#pfsched'), { api, esc, toast })).catch(() => {});
+  main.querySelector('#pfpic')?.addEventListener('click', () => pickAvatar({ sb, S, DEMO, toast, onDone: (p) => { const el = main.querySelector('#pfpic'); el.classList.add('has-pic'); el.style.backgroundImage = `url('${avatarUrl(p)}')`; [...el.childNodes].forEach((n) => { if (n.nodeType === 3) n.remove(); }); } }));
   if (!me && !DEMO) sb.rpc('record_profile_view', { target: uid }).then(() => {}, () => {}); // business insights
   if (me && a.account_type === 'business' && !DEMO) businessInsights(main.querySelector('#pfins'), sb);
   main.querySelector('#pftheme')?.addEventListener('click', () => themePicker({ uid, premium: premium(), modal, esc }));

@@ -1324,3 +1324,134 @@ h1{font-style:italic;font-weight:700;letter-spacing:-.02em}
 a.badge{display:inline-flex;align-items:center;min-height:44px;padding:0 12px}
 /* dark islands: "deep gold" must turn light gold on dark backgrounds */
 :is(.card.night,.town-hero,.onb,.rope,.wa-chat,.ms,.bubble,.pulse,.sw-card,.story-view,.ex-map,.next-trip,.promo-dark,.pf-hero,.tg-hero,.fab-sheet,.js-otd,.tr-teaser){--accent-dark:#E2B466}
+/* Explore: several photos per swipe card */
+.sw-dots{position:absolute;z-index:3;top:10px;left:14px;right:14px;display:flex;gap:4px}
+.sw-dots i{flex:1;height:3px;border-radius:2px;background:rgba(255,255,255,.4)}
+.sw-dots i.on{background:#F0CB8A}
+.sw-pg{position:absolute;z-index:3;top:38%;width:44px;height:44px;border-radius:50%;border:1px solid rgba(216,166,87,.45);background:rgba(13,11,8,.55);color:#F3ECDF;font-size:26px;line-height:1;cursor:pointer;display:grid;place-items:center}
+.sw-pg.prev{left:10px}.sw-pg.next{right:10px}
+.sw-pg:focus-visible{outline:3px solid #F0CB8A;outline-offset:2px}
+/* Explore place window: contact details */
+.pw-contact{display:grid;gap:6px}
+.pw-crow{display:flex;align-items:center;gap:12px;min-height:48px;padding:6px 12px;border-radius:16px;background:var(--soft);color:var(--ink);text-decoration:none}
+.pw-crow>span:first-child{font-size:20px;width:26px;text-align:center}
+.pw-crow small{display:block;color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.06em}
+.pw-crow b{display:block;font-size:14px;overflow-wrap:anywhere}
+a.pw-crow:hover,a.pw-crow:focus-visible{box-shadow:inset 0 0 0 1px var(--accent)}
+/* place + town comments */
+.pcm{display:grid;gap:10px}
+.pcm-list{display:grid;gap:8px}
+.pcm-c{display:flex;gap:10px;align-items:flex-start;padding:10px 12px;border-radius:16px;background:var(--soft)}
+.pcm-c p{margin:2px 0 0;overflow-wrap:anywhere}
+.pcm-c .avatar{flex:none;width:34px;height:34px}
+.pcm-del{margin-left:auto;flex:none;width:44px;height:44px;border:0;border-radius:50%;background:transparent;color:var(--muted);cursor:pointer}
+.pcm-form{display:flex;gap:8px}
+.pcm-form input{flex:1;min-width:0;min-height:48px}
+/* Admin workspace */
+.ad-tabs{display:flex;margin:4px 0 16px;max-width:100%;overflow-x:auto}
+.ad-tabs a{display:inline-flex;align-items:center;min-height:44px;padding:0 16px;border-radius:999px;color:var(--ink);text-decoration:none;font-weight:700;white-space:nowrap}
+.ad-tabs a[aria-current=page]{background:#14120E;color:#F3ECDF}
+.ad-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:12px}
+.ad-tile{display:grid;gap:2px;padding:16px}
+.ad-tile b{font-family:var(--display);font-size:34px;line-height:1.1}
+.ad-tile small{color:var(--muted)}
+.ad-spark{width:100%;height:64px;margin-top:6px}
+.ad-line{fill:none;stroke:var(--accent);stroke-width:2.5;stroke-linejoin:round;stroke-linecap:round}
+.ad-area{fill:var(--accent);opacity:.12}
+.ad-dot{fill:var(--accent)}
+.ad-table-wrap{overflow-x:auto;border:1px solid var(--line);border-radius:18px;background:var(--surface)}
+.ad-table{width:100%;border-collapse:collapse;font-size:14px;font-variant-numeric:tabular-nums}
+.ad-table th,.ad-table td{padding:10px 12px;text-align:right;border-bottom:1px solid var(--line);white-space:nowrap}
+.ad-table th:first-child,.ad-table td:first-child{text-align:left}
+.ad-table th{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em}
+.ad-member{display:grid;gap:4px;padding:14px 16px}
+/* Theme: Welwitschia (free) - sage page, deep olive accents */
+:root[data-mod="welwitschia"]{--bg:#EFF2EA;--soft:#E4E9DC;--line:#D3DBC6;--accent:#5E7D32;--accent-dark:#435A22;--gold-hi:#A9C77A;--t-ring:#8DB356}
+:root[data-mod="welwitschia"] :is(.card.night,.pulse,.sw-card,.pf-hero,.tg-hero,.fab-sheet,.tg-askbox,.js-otd,.tr-teaser,.next-trip){--accent:#A9C77A;--gold-hi:#C9E09F;--accent-dark:#C9E09F}
+:root[data-mod="welwitschia"] .pf-hero,:root[data-mod="welwitschia"] .pulse{background:radial-gradient(120% 120% at 50% 0,#22361F,#0E1710 65%)}
+:root[data-mod="welwitschia"] .fab{background:linear-gradient(145deg,#C9E09F,#8DB356 55%,#5E7D32);color:#0E1710}
+:root[data-mod="welwitschia"] .btn.primary{box-shadow:inset 0 -2px 0 #8DB356}
+/* Theme: Kalahari Copper (Premium) - warm sand, burnished copper */
+:root[data-mod="copper"]{--bg:#F6EEE6;--soft:#EFE2D6;--line:#E3D2C2;--accent:#B4552D;--accent-dark:#8C3E1E;--gold-hi:#E89A6B;--t-ring:#D9773F}
+:root[data-mod="copper"] :is(.card.night,.pulse,.sw-card,.pf-hero,.tg-hero,.fab-sheet,.tg-askbox,.js-otd,.tr-teaser,.next-trip){--accent:#E89A6B;--gold-hi:#F4BE96;--accent-dark:#F4BE96}
+:root[data-mod="copper"] .pf-hero,:root[data-mod="copper"] .pulse{background:radial-gradient(120% 120% at 50% 0,#4A2112,#1B0C06 65%)}
+:root[data-mod="copper"] .fab{background:linear-gradient(145deg,#F4BE96,#D9773F 55%,#B4552D);color:#1B0C06}
+:root[data-mod="copper"] .btn.primary{box-shadow:inset 0 -2px 0 #D9773F}
+/* Theme: Namib Stars (Premium) - the whole app goes dark: deep navy night with starlight silver */
+:root[data-mod="stars"]{color-scheme:dark;--bg:#0B0E16;--surface:#141A26;--soft:#1C2433;--line:#2A3446;--ink:#E8ECF5;--muted:#A3AEC4;--muted2:#C3CCDD;
+  --accent:#9DB4E0;--on-accent:#0B0E16;--accent-dark:#B9CBEE;--gold-hi:#C9D7F2;--t-ring:#9DB4E0;--glass:rgba(20,26,38,.78)}
+:root[data-mod="stars"] body{background:radial-gradient(1px 1px at 12% 18%,#fff8 50%,transparent),radial-gradient(1px 1px at 68% 9%,#fff6 50%,transparent),radial-gradient(1.5px 1.5px at 84% 41%,#fff7 50%,transparent),radial-gradient(1px 1px at 33% 63%,#fff5 50%,transparent),#0B0E16;background-attachment:fixed}
+:root[data-mod="stars"] :is(.card.night,.pulse,.sw-card,.pf-hero,.tg-hero,.fab-sheet,.tg-askbox,.js-otd,.tr-teaser,.next-trip){--bg:#070910;--surface:#121826;--accent:#9DB4E0;--gold-hi:#C9D7F2;--accent-dark:#C9D7F2}
+:root[data-mod="stars"] :is(.card,.chip,.searchbar,.seg,.date-tile,.rope-step,.modal .panel,.cp-list,.side){background:var(--surface);color:var(--ink);border-color:var(--line)}
+:root[data-mod="stars"] .btn{color:var(--ink);border-color:var(--line)}
+:root[data-mod="stars"] .btn.primary,:root[data-mod="stars"] .seg button[aria-pressed="true"],:root[data-mod="stars"] .ad-tabs a[aria-current=page]{background:#C9D7F2;border-color:#C9D7F2;color:#0B0E16;box-shadow:none}
+:root[data-mod="stars"] input,:root[data-mod="stars"] select,:root[data-mod="stars"] textarea{background:#0F1420;color:var(--ink);border-color:var(--line)}
+:root[data-mod="stars"] .fab{background:linear-gradient(145deg,#E8ECF5,#9DB4E0 55%,#5F7BB5);color:#0B0E16}
+:root[data-mod="stars"] .pf-hero,:root[data-mod="stars"] .pulse{background:radial-gradient(120% 120% at 50% 0,#1D2A47,#070910 65%)}
+/* Profile pictures (avatars.js) */
+.avatar.has-pic{background:#221D16 center/cover no-repeat}
+.pf-av.has-pic{background:center/cover no-repeat,#17140F}
+button.pf-av{border:0;cursor:pointer;padding:0}
+button.pf-av:focus-visible{outline:3px solid #F0CB8A;outline-offset:4px}
+.pf-cam{position:absolute;right:-4px;bottom:-4px;display:grid;place-items:center;width:32px;height:32px;border-radius:50%;background:#F0CB8A;font-size:15px;font-style:normal;box-shadow:0 0 0 3px #110E0A}
+.pf-biz{display:inline-flex;align-items:center;min-height:30px;padding:0 12px;border-radius:999px;background:rgba(216,166,87,.18);color:#F0CB8A;font-size:13px;font-weight:700}
+/* Town Guide: photos travellers tagged here + richer people cards */
+.tg-wall{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px;margin-bottom:14px}
+.tg-shot{position:relative;aspect-ratio:4/5;border-radius:20px;background:#221D16 center/cover no-repeat;overflow:hidden;text-decoration:none;color:#F3ECDF}
+.tg-shot::after{content:"";position:absolute;inset:40% 0 0;background:linear-gradient(transparent,rgba(13,11,8,.9))}
+.tg-shot-by{position:absolute;z-index:1;left:8px;right:8px;bottom:8px;display:flex;align-items:center;gap:8px;min-width:0}
+.tg-shot-by .avatar{width:32px;height:32px;font-size:13px;box-shadow:0 0 0 2px #F0CB8A}
+.tg-shot-by>span:last-child{display:grid;min-width:0}
+.tg-shot-by b{font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tg-shot-by small{font-size:11px;color:#D3C8B4;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tg-person{width:96px;text-align:center}
+.tg-person b{font-size:13px}
+.tg-biz{display:inline-block;padding:2px 8px;border-radius:999px;background:var(--soft);color:var(--accent-dark);font-size:11px;font-weight:700}
+.tg-shot .tg-biz{background:rgba(216,166,87,.25);color:#F0CB8A}
+.tg-bio{font-size:11px;color:var(--muted);line-height:1.3;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+/* My schedule: a private diary of plans with photos */
+.sch-card{display:grid;gap:10px;margin:14px 0;padding:16px;border-radius:28px;background:var(--surface);border:1px solid var(--line)}
+.sch-row{display:flex;align-items:center;gap:12px;padding:12px;border-radius:20px;background:var(--soft);color:var(--ink)}
+.sch-row.has-img{min-height:110px;background-size:cover;background-position:center;color:#F3ECDF}
+.sch-row.has-img small,.sch-row.has-img em{color:#E6DCC8}
+.sch-n{display:grid;place-items:center;flex:none;width:56px;height:56px;border-radius:18px;background:#14120E;color:#F0CB8A;line-height:1}
+.sch-n b{font-family:var(--display);font-size:24px}.sch-n small{font-size:10px;text-transform:uppercase;letter-spacing:.06em}
+.sch-t{display:grid;gap:2px;flex:1;min-width:0}
+.sch-t b{font-size:16px}.sch-t small{color:var(--muted);font-size:12px}
+.sch-t em{font-family:var(--display);font-size:17px}
+.sch-soon{color:var(--accent-dark);font-weight:800}
+.sch-row.has-img .sch-soon{color:#F0CB8A}
+.sch-a{display:flex;gap:6px}
+.sch-a .btn{min-width:44px;padding:0 10px}
+.sch-row.has-img .sch-a .btn{background:rgba(13,11,8,.55);color:#F3ECDF;border-color:rgba(243,236,223,.3)}
+.sch-sim{display:grid;gap:6px}
+.sch-s{display:grid;text-align:left;gap:2px;min-height:52px;padding:8px 14px;border-radius:16px;border:1px solid var(--line);background:var(--soft);color:var(--ink);cursor:pointer;font:inherit}
+.sch-s small{color:var(--muted)}
+/* Journey grid: one section per year, newest first */
+.js-year{margin-top:14px}
+.js-year h3{display:flex;align-items:baseline;gap:10px;margin:0 0 8px}
+.js-year h3 span{font-family:var(--display);font-size:28px;font-style:italic}
+.js-year h3 small{color:var(--muted);font-size:13px;font-weight:600}
+.pf-cell span small{display:block;margin-top:4px;font-size:11px;opacity:.75}
+/* Journal comments with replies (journal-thread.js): chat-style bubbles, replies indented under their comment */
+.jc-list{display:grid;gap:14px}
+.jc-thread{display:grid;gap:8px}
+.jc{display:flex;gap:10px;align-items:flex-start}
+.jc .avatar{width:36px;height:36px;font-size:14px}
+.jc-reply .avatar{width:28px;height:28px;font-size:12px}
+.jc-body{display:grid;gap:2px;min-width:0;flex:1}
+.jc-bubble{display:grid;gap:2px;justify-self:start;max-width:100%;padding:8px 14px;border-radius:4px 18px 18px 18px;background:var(--soft);overflow-wrap:anywhere}
+.jc-bubble b{font-size:13px}
+.jc-meta{display:flex;flex-wrap:wrap;align-items:center;gap:2px 12px;padding-left:6px;font-size:12px;color:var(--muted)}
+.jc-link{min-height:32px;padding:0 4px;border:0;background:none;color:var(--muted);font:inherit;font-weight:700;cursor:pointer}
+.jc-link:hover,.jc-link:focus-visible{color:var(--ink)}
+.jc-replies{display:grid;gap:8px;margin-left:46px;padding-left:10px;border-left:2px solid var(--line)}
+.jc-more{justify-self:start;min-height:36px;padding:0 6px;border:0;background:none;color:var(--accent-dark);font:inherit;font-size:13px;font-weight:800;cursor:pointer}
+.jc-more::before{content:"";display:inline-block;width:22px;height:1px;margin-right:8px;vertical-align:middle;background:currentColor}
+.jc-form{display:flex;gap:8px;flex-wrap:wrap}
+.jc-form .input{flex:1;min-width:160px}
+.jc-rform{margin-left:46px}
+.jc-edit{gap:6px;margin-top:4px}
+/* status update on profiles */
+.pf-status{display:inline-flex;align-items:center;gap:8px;margin:6px 0 0;padding:6px 14px;border-radius:999px;background:rgba(240,203,138,.14);color:#F3ECDF;font-size:14px}
+.pf-status small{color:#B8AE9A;font-size:11px}
