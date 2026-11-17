@@ -92,15 +92,17 @@ Deno.serve(async (req) => {
         if (!KEY && !GKEY) return fail("The assistant isn't connected yet. Add the GEMINI_API_KEY or ANTHROPIC_API_KEY secret in Supabase.");
         const db = admin();
         const monthStart = new Date(); monthStart.setUTCDate(1); monthStart.setUTCHours(0, 0, 0, 0);
-        const [{ data: p }, { count }] = await Promise.all([
+        const [{ data: p }, { count }, { data: adminRow }] = await Promise.all([
           db.from("profiles").select("*").eq("id", user.id).single(),
           db.from("planner_messages").select("id", { count: "exact", head: true }).eq("user_id", user.id).eq("role", "user").gte("created_at", monthStart.toISOString()),
+          db.from("admins").select("user_id").eq("user_id", user.id).maybeSingle(),
         ]);
+        const unlimited = !!adminRow; // the owner's admin account has no monthly question limit
         const paid = p && ["premium", "pro"].includes(p.plan) && p.premium_until && new Date(p.premium_until) > new Date();
-        const tier = paid ? (p.plan as "premium" | "pro") : "free";
+        const tier = unlimited ? "pro" : paid ? (p.plan as "premium" | "pro") : "free";
         const cfg = PLANS[tier];
 
-        if ((count ?? 0) >= cfg.limit) {
+        if (!unlimited && (count ?? 0) >= cfg.limit) {
           // Take the tokens now, under a database lock, so two questions at once can't spend the same tokens.
           const { error: spendErr } = await db.rpc("_spend_tokens", { uid: user.id, amount: EXTRA_COST, why: "Extra AI question", ref: null });
           if (spendErr) {

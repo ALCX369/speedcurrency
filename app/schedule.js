@@ -5,6 +5,8 @@
 //   checkSchedule(): when the app opens, a reminder for plans that start within 9 days (once per plan),
 //                    plus a phone notification when allowed. The .ics file gives a calendar alarm 9 days before.
 
+import { okImg, placeLabel } from './shared.js';
+
 export const HOPE_MAX = 33;
 export const NOTIFY_DAYS = 9;
 const DAY = 86400000;
@@ -13,8 +15,9 @@ const dateOf = (s) => { const d = new Date(String(s).slice(0, 10) + 'T00:00:00')
 const daysTo = (s) => { const d = dateOf(s); return d ? Math.round((d - today()) / DAY) : null; };
 const iso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 const isPlan = (t) => t?.reminder?.schedule === true;
-// only free photos from Wikimedia / Wikipedia are kept with a plan (safe, public addresses)
-const okImg = (u) => (/^https:\/\/upload\.wikimedia\.org\/[^\s'""()<>]+$/.test(u || '') ? u : null);
+// your private plans that haven't happened yet, soonest first
+const upcoming = async (api) => (await api.list('trips').catch(() => [])).filter(isPlan).filter((t) => daysTo(t.start_date) >= 0)
+  .sort((a, b) => String(a.start_date).localeCompare(String(b.start_date)));
 
 // calendar file: an all-day event with an alarm 9 days before (works in Google, Apple and Outlook calendars)
 export function icsFor(t) {
@@ -49,14 +52,14 @@ export function scheduleSheet({ place, api, modal, esc, toast, similar }) {
       const btn = pnl.querySelector('#schf button'); btn.disabled = true;
       try {
         const t = await api.insert('trips', {
-          destination: String(place.town && place.town !== place.name ? `${place.name}, ${place.town}` : place.name).slice(0, 120),
+          destination: placeLabel(place).slice(0, 120),
           start_date: date, end_date: date, notes: h.value.trim().slice(0, HOPE_MAX) || null,
           reminder: { schedule: true, notify_days: NOTIFY_DAYS, place: place.name, kind: place.kind || null, key: place.key || null, img: okImg(place.img) },
         });
         window.dispatchEvent(new CustomEvent('sc:pulse', { detail: { kind: 'memory' } }));
         const remind = new Date(dateOf(date).getTime() - NOTIFY_DAYS * DAY);
         pnl.querySelector('#schf').outerHTML = `<div class="pw sch"><span class="eyebrow">✓ Saved to your schedule</span><h2>${esc(place.name)}</h2>
-          <p style="margin:0"><b>${esc(new Date(date + 'T00:00:00').toDateString())}</b>${t.notes ? ` · “${esc(t.notes)}”` : ''}</p>
+          <p style="margin:0"><b>${esc(dateOf(date).toDateString())}</b>${t.notes ? ` · “${esc(t.notes)}”` : ''}</p>
           <p class="small muted" style="margin:0">Reminder on ${esc(remind > today() ? remind.toDateString() : 'your next visit to the app')}.</p>
           <div class="row wrap"><button type="button" class="btn small primary" id="schics">Add to phone calendar</button>${'Notification' in window && Notification.permission === 'default' ? '<button type="button" class="btn small ghost" id="schnot">Allow reminders</button>' : ''}<a class="btn small ghost" href="#/account" data-close>My schedule</a></div>
           <h3 style="margin:8px 0 0">You might also like</h3><div class="sch-sim" id="schsim"><div class="skeleton"><span></span></div></div>
@@ -78,12 +81,12 @@ export function scheduleSheet({ place, api, modal, esc, toast, similar }) {
 export async function mountScheduleCard(el, { api, esc, toast }) {
   if (!el) return;
   const draw = async () => {
-    const plans = (await api.list('trips').catch(() => [])).filter(isPlan).filter((t) => daysTo(t.start_date) >= 0).sort((a, b) => String(a.start_date).localeCompare(String(b.start_date)));
+    const plans = await upcoming(api);
     el.innerHTML = `<div class="sch-card"><div class="row between"><h2 style="margin:0">📅 My schedule</h2><small class="muted">🔒 Only you</small></div>
       ${plans.length ? plans.map((t) => { const n = daysTo(t.start_date);
         const img = okImg(t.reminder?.img);
         return `<div class="sch-row${img ? ' has-img' : ''}" style="${img ? `background-image:linear-gradient(90deg,rgba(13,11,8,.88),rgba(13,11,8,.35)),url('${esc(img)}')` : ''}"><span class="sch-n"><b>${n}</b><small>${n === 1 ? 'day' : 'days'}</small></span>
-          <span class="sch-t"><b>${esc(t.destination)}</b><small>${esc(new Date(t.start_date + 'T00:00:00').toDateString())}${n <= NOTIFY_DAYS ? ' · <span class="sch-soon">coming up</span>' : ''}</small>${t.notes ? `<em>“${esc(t.notes)}”</em>` : ''}</span>
+          <span class="sch-t"><b>${esc(t.destination)}</b><small>${esc(dateOf(t.start_date).toDateString())}${n <= NOTIFY_DAYS ? ' · <span class="sch-soon">coming up</span>' : ''}</small>${t.notes ? `<em>“${esc(t.notes)}”</em>` : ''}</span>
           <span class="sch-a"><button type="button" class="btn small ghost" data-ics="${esc(t.id)}" aria-label="Add ${esc(t.destination)} to phone calendar">📆</button><button type="button" class="btn small ghost" data-del="${esc(t.id)}" aria-label="Remove ${esc(t.destination)} from schedule">✕</button></span></div>`; }).join('')
       : '<p class="small muted" style="margin:0">Nothing planned yet. Tap <b>📅 Add to my schedule</b> on any place in Explore or a town guide.</p>'}</div>`;
     el.querySelectorAll('[data-ics]').forEach((b) => b.onclick = () => saveIcs(plans.find((t) => t.id === b.dataset.ics)));
@@ -96,7 +99,7 @@ export async function mountScheduleCard(el, { api, esc, toast }) {
 export async function checkSchedule({ api, toast, uid }) {
   const KEY = `sc_sched_seen_${uid}`;
   let seen = []; try { seen = JSON.parse(localStorage.getItem(KEY) || '[]'); } catch { /* none */ }
-  const plans = (await api.list('trips').catch(() => [])).filter(isPlan).filter((t) => daysTo(t.start_date) >= 0);
+  const plans = await upcoming(api);
   seen = seen.filter((sid) => plans.some((t) => t.id === sid)); // forget plans that are over, so the list never overflows
   const due = plans.filter((t) => daysTo(t.start_date) <= NOTIFY_DAYS && !seen.includes(t.id));
   for (const t of due) {

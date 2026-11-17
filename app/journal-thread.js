@@ -3,18 +3,23 @@
 // Everything happens in place: posting, replying, "View 3 more replies", editing and deleting never reload
 // the page or jump to the top.
 import { avatarHtml, nameOf } from './avatars.js';
+import { notReady, SOON } from './shared.js';
 
 const SHOW_REPLIES = 1; // replies shown before "View N more replies"
 const EMOJIS = ['😍', '🔥', '👏', '🌍', '🙌', '😂', '🦁', '🏜️'];
 
-export async function mountThread(el, { entryId, mine, open, api, sb, S, esc, ago, toast, premium }) {
+export async function mountThread(el, { entryId, mine, open, api, sb, S, esc, ago, toast, premium, comments = null }) {
   if (!el) return;
   const expanded = new Set(); // threads the reader opened stay open after a refresh
-  let replyTo = null;
+  let replyTo = null, all = [], people = {};
 
-  const draw = async () => {
-    const all = await api.comments(entryId).catch(() => []);
-    const people = await api.profilesById(all.map((c) => c.user_id)).catch(() => ({}));
+  // load() talks to the server; paint() only redraws what is already here (opening replies costs nothing)
+  const load = async (rows = null) => {
+    all = rows || await api.comments(entryId).catch(() => []);
+    people = { ...people, ...await api.profilesById(all.map((c) => c.user_id).filter((id) => !people[id])).catch(() => ({})) };
+  };
+  const draw = async (rows) => { await load(rows); paint(); };
+  const paint = () => {
     const top = all.filter((c) => !c.parent_id);
     const kids = (id) => all.filter((c) => c.parent_id === id);
     const me = S.user?.id;
@@ -39,19 +44,19 @@ export async function mountThread(el, { entryId, mine, open, api, sb, S, esc, ag
   };
 
   const post = async (body, parent) => {
-    try { await api.addComment(entryId, body, parent); toast(parent ? 'Reply posted' : 'Comment posted'); if (parent) { expanded.add(parent); replyTo = null; } await draw(); }
-    catch (err) { toast(/function|parent|argument/i.test(err.message) && parent ? 'Replies are switching on soon' : err.message); }
+    try { await api.addComment(entryId, body, parent); toast(parent ? 'Reply posted' : 'Comment posted'); window.dispatchEvent(new CustomEvent('sc:pulse', { detail: { kind: 'comment' } })); if (parent) { expanded.add(parent); replyTo = null; } await draw(); }
+    catch (err) { toast(notReady(err) ? SOON : err.message); }
   };
 
   // one listener for the whole box, so redrawing never loses handlers
   el.addEventListener('click', async (ev) => {
     const t = ev.target.closest('button'); if (!t || !el.contains(t)) return;
-    if (t.dataset.more) { expanded.add(t.dataset.more); return draw(); }
-    if (t.dataset.less) { expanded.delete(t.dataset.less); return draw(); }
-    if (t.dataset.reply) { replyTo = t.dataset.reply; await draw(); const i = el.querySelector('#jcr'); if (i && t.dataset.to) { i.value = `@${t.dataset.to.replace(/^@/, '').split(' ')[0]} `; i.focus(); } return; }
-    if (t.hasAttribute('data-rcancel')) { replyTo = null; return draw(); }
+    if (t.dataset.more) { expanded.add(t.dataset.more); return paint(); }
+    if (t.dataset.less) { expanded.delete(t.dataset.less); return paint(); }
+    if (t.dataset.reply) { replyTo = t.dataset.reply; paint(); const i = el.querySelector('#jcr'); if (i && t.dataset.to) { i.value = `@${t.dataset.to.replace(/^@/, '').split(' ')[0]} `; i.focus(); } return; }
+    if (t.hasAttribute('data-rcancel')) { replyTo = null; return paint(); }
     if (t.dataset.emo) { const i = el.querySelector('#cbody'); if (i) { i.value = (i.value + ' ' + t.dataset.emo).trim().slice(0, 300); i.focus(); } return; }
-    if (t.dataset.cdel) { if (!confirm('Delete this comment?')) return; const { error } = await sb.from('journal_comments').delete().eq('id', t.dataset.cdel); if (error) toast(error.message); return draw(); }
+    if (t.dataset.cdel) { if (!confirm('Delete this comment?')) return; const { error } = await sb.from('journal_comments').delete().eq('id', t.dataset.cdel); if (error) { toast(error.message); return; } const gone = t.dataset.cdel; all = all.filter((c) => c.id !== gone && c.parent_id !== gone); return paint(); }
     if (t.dataset.cedit) {
       const span = t.closest('[data-cid]').querySelector('.cbody'); const old = span.textContent;
       span.innerHTML = '<form class="row jc-edit"><input class="input" maxlength="300" aria-label="Edit comment"><button class="btn small primary">Save</button><button type="button" class="btn small ghost" data-ecancel>Cancel</button></form>';
@@ -65,5 +70,5 @@ export async function mountThread(el, { entryId, mine, open, api, sb, S, esc, ag
     if (f.id === 'cform') { const i = f.querySelector('#cbody'); const b = i.value.trim(); if (b) { i.value = ''; post(b, null); } }
     else if (f.dataset.rform) { const b = f.querySelector('#jcr').value.trim(); if (b) post(b, f.dataset.rform); }
   });
-  await draw();
+  await draw(comments);
 }

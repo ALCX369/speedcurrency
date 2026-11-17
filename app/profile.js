@@ -8,6 +8,7 @@ import { themePicker } from './themes.js';
 import { mountHeadsups } from './headsups.js';
 import { businessBlock, businessInsights } from './business.js';
 import { avatarUrl, bizLabel, pickAvatar } from './avatars.js';
+import { notReady, SOON } from './shared.js';
 
 const statusLive = (a) => !!(a?.status_text && a.status_at && Date.now() - new Date(a.status_at) < 7 * 86400000);
 const gmaps = (q) => `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(q)}`;
@@ -34,10 +35,11 @@ export async function Profile(main, r, { esc, api, sb, S, DEMO, modal, toast, re
   if (me) { try { const m = await import('./journey-pulse.js'); const s = JSON.parse(localStorage.getItem(`sc_pulse_${uid}`) || '{}'); const l = m.levelOf(s.xp || 0); level = l.name; lvlN = l.i + 1; pct = l.pct; streak = s.best || 0; } catch { /* no pulse yet */ } }
   const stamps = STAMP_TOWNS.filter(([t]) => entries.some((e) => new RegExp(`\\b${t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i').test((e.place_name || '') + ' ' + (e.title || '')))).length;
 
+  const pic = avatarUrl(a.avatar_path); const avTag = me ? 'button' : 'span'; // profile picture (or the first letter)
   main.innerHTML = `
     <header class="pf-hero" style="${hero ? `background-image:linear-gradient(180deg,rgba(13,11,8,.1),rgba(13,11,8,.92)),url('${esc(hero)}')` : ''}">
       ${me ? '<a class="pf-gear" href="#/account?tab=settings" aria-label="Settings">⚙</a>' : ''}
-      <${me ? 'button type="button" id="pfpic" aria-label="Change profile picture"' : 'span aria-hidden="true"'} class="pf-av${avatarUrl(a.avatar_path) ? ' has-pic' : ''}" style="--pct:${Math.round(pct * 100)};${avatarUrl(a.avatar_path) ? `background-image:url('${esc(avatarUrl(a.avatar_path))}')` : ''}">${avatarUrl(a.avatar_path) ? '' : esc(name.replace('@', '')[0]?.toUpperCase() || '✦')}${lvlN ? `<i class="pf-lvl">${lvlN}</i>` : ''}${me ? '<i class="pf-cam" aria-hidden="true">📷</i>' : ''}</${me ? 'button' : 'span'}>
+      <${avTag} ${me ? 'type="button" id="pfpic" aria-label="Change profile picture"' : 'aria-hidden="true"'} class="pf-av${pic ? ' has-pic' : ''}" style="--pct:${Math.round(pct * 100)};${pic ? `background-image:url('${esc(pic)}')` : ''}"><span class="pf-av-l">${pic ? '' : esc(name.replace('@', '')[0]?.toUpperCase() || '✦')}</span>${lvlN ? `<i class="pf-lvl">${lvlN}</i>` : ''}${me ? '<i class="pf-cam" aria-hidden="true">📷</i>' : ''}</${avTag}>
       ${bizLabel(a) ? `<span class="pf-biz">${esc(bizLabel(a))}${a.biz_town ? ' · ' + esc(a.biz_town) : ''}</span>` : ''}
       <h1>${esc(name)}${me && premium() ? ' <span class="pf-prem" title="Premium member">★ Premium</span>' : ''}</h1>
       <p class="pf-sub">${[a.username ? '@' + a.username : '', a.home_country ? 'from ' + a.home_country : '', level ? level : ''].filter(Boolean).map(esc).join(' · ')}</p>
@@ -83,13 +85,13 @@ export async function Profile(main, r, { esc, api, sb, S, DEMO, modal, toast, re
         await api.update('profiles', uid, patch); Object.assign(a, patch); if (S.profile) Object.assign(S.profile, patch);
         const el = main.querySelector('#pfstatus'); el.hidden = !text; el.innerHTML = text ? `💬 ${esc(text)} <small>just now</small>` : '';
         toast(text ? 'Status shared' : 'Status cleared'); close();
-      } catch (e) { toast(/status|column/i.test(e.message) ? 'Status updates are switching on soon' : e.message); }
+      } catch (e) { toast(notReady(e) ? SOON : e.message); }
     };
     pnl.querySelector('#stf').onsubmit = (ev) => { ev.preventDefault(); saveStatus(i.value.trim().slice(0, 60)); };
     pnl.querySelector('#stclr')?.addEventListener('click', () => saveStatus(''));
   }));
   if (me) import('./schedule.js').then((m) => m.mountScheduleCard(main.querySelector('#pfsched'), { api, esc, toast })).catch(() => {});
-  main.querySelector('#pfpic')?.addEventListener('click', () => pickAvatar({ sb, S, DEMO, toast, onDone: (p) => { const el = main.querySelector('#pfpic'); el.classList.add('has-pic'); el.style.backgroundImage = `url('${avatarUrl(p)}')`; [...el.childNodes].forEach((n) => { if (n.nodeType === 3) n.remove(); }); } }));
+  main.querySelector('#pfpic')?.addEventListener('click', () => pickAvatar({ sb, S, DEMO, toast, onDone: (p) => { const el = main.querySelector('#pfpic'); el.classList.add('has-pic'); el.style.backgroundImage = `url('${avatarUrl(p)}')`; el.querySelector('.pf-av-l').textContent = ''; } }));
   if (!me && !DEMO) sb.rpc('record_profile_view', { target: uid }).then(() => {}, () => {}); // business insights
   if (me && a.account_type === 'business' && !DEMO) businessInsights(main.querySelector('#pfins'), sb);
   main.querySelector('#pftheme')?.addEventListener('click', () => themePicker({ uid, premium: premium(), modal, esc }));

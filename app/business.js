@@ -3,7 +3,7 @@
 // category badge, contact buttons (Call, WhatsApp, Directions, Website, Book) and simple insights.
 // Columns + functions: migration 015. Until it runs, everything here stays hidden.
 export const CATS = { lodge: '🛏 Lodge & stay', restaurant: '🍽 Restaurant & café', tour: '🧭 Tours & activities', shop: '🛍 Shop', transport: '🚐 Transport & car hire', guide: '🎒 Local guide', other: '✦ Business' };
-const digits = (p) => String(p || '').replace(/[^\d+]/g, '');
+export const digits = (p) => String(p || '').replace(/[^\d+]/g, '');
 const https = (u) => (/^https:\/\//.test(u || '') ? u : '');
 
 /** Contact strip shown on a business profile. */

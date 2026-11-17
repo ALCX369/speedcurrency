@@ -64,6 +64,7 @@ function guessCountry() {
 
 /* ---------- data API ---------- */
 const CACHE = new Map();
+const PROFILES = new Map(); // id -> { at, p } (public profile cards)
 const OWNED = ['trips', 'journal_entries', 'pins', 'planner_chats', 'planner_messages'];
 const bust = (table) => { for (const k of [...CACHE.keys()]) if (k.includes(`"${table}"`)) CACHE.delete(k); };
 const api = {
@@ -121,14 +122,14 @@ const api = {
     }
     const key = JSON.stringify([table, order, asc, eq, all]);
     const hit = CACHE.get(key);
-    if (!fresh && hit && Date.now() - hit.at < 20000) return hit.rows;
+    if (!fresh && hit && Date.now() - hit.at < 20000) return hit.rows; // rows is a promise: callers at the same moment share one request
     let q = sb.from(table).select('*').order(order, { ascending: asc });
     if (eq) q = q.eq(eq[0], eq[1]);
     if (!all && OWNED.includes(table) && S.user) q = q.eq('user_id', S.user.id);
-    const { data, error } = await q;
-    if (error) throw error;
-    CACHE.set(key, { at: Date.now(), rows: data });
-    return data;
+    const rows = q.then(({ data, error }) => { if (error) throw error; return data; });
+    CACHE.set(key, { at: Date.now(), rows });
+    rows.catch(() => { if (CACHE.get(key)?.rows === rows) CACHE.delete(key); }); // a failed request is not remembered
+    return rows;
   },
   async get(table, id) {
     if (DEMO) return DS.get(table).find((r) => r.id === id) || null;
@@ -209,11 +210,12 @@ const api = {
     const { data } = await sb.from('token_ledger').select('delta, reason, created_at').order('created_at', { ascending: false }).limit(20);
     return data || [];
   },
-  async profilesById(ids) {
+  async profilesById(ids) { // remembered for 2 minutes so the same people aren't downloaded again on every screen
     ids = [...new Set(ids.filter(Boolean))];
     if (!ids.length || DEMO) return {};
-    const { data } = await sb.rpc('get_profiles', { ids });
-    return Object.fromEntries((data || []).map((p) => [p.id, p]));
+    const now = Date.now(); const missing = ids.filter((id) => !(PROFILES.get(id)?.at > now - 120000));
+    if (missing.length) { const { data } = await sb.rpc('get_profiles', { ids: missing }); for (const p of data || []) PROFILES.set(p.id, { at: now, p }); }
+    return Object.fromEntries(ids.map((id) => [id, PROFILES.get(id)?.p]).filter(([, p]) => p));
   },
   async feed() {
     if (DEMO) return [];
@@ -229,7 +231,7 @@ const api = {
   async addComment(entryId, body, parent = null) {
     if (DEMO) throw new Error('Comments work once you are signed in online.');
     const { error } = await sb.rpc('add_comment', parent ? { entry: entryId, body, parent } : { entry: entryId, body });
-    if (error) throw new Error(error.message);
+    if (error) throw Object.assign(new Error(error.message), { code: error.code }); // keep the code: shared.notReady() reads it
   },
   async reactions(ids) {
     if (DEMO || !ids.length) return [];
@@ -458,8 +460,17 @@ function activateAds() {
     s.src = `https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=${encodeURIComponent(C.ADSENSE_CLIENT)}`;
     document.head.appendChild(s); adsenseLoaded = true;
   }
-  $$('ins.adsbygoogle:not([data-done])').forEach((el) => { if (!el.offsetWidth) return; /* hidden slot: AdSense errors on zero width, try again on the next page */ el.dataset.done = '1'; try { (window.adsbygoogle = window.adsbygoogle || []).push({}); } catch { /* ad blockers */ } });
+  // fill a slot only once it is on screen with a real width (AdSense errors on hidden or zero-width slots,
+  // and off-screen ads would waste the reader's data)
+  adWatch ||= new IntersectionObserver((xs) => xs.forEach((x) => {
+    if (!x.isIntersecting || x.boundingClientRect.width < 50) return;
+    adWatch.unobserve(x.target); x.target.dataset.done = '1';
+    try { (window.adsbygoogle = window.adsbygoogle || []).push({}); } catch { /* ad blockers */ }
+  }), { rootMargin: '200px' });
+  adWatch.disconnect(); // forget slots from the previous page, then watch the ones on this page
+  $$('ins.adsbygoogle:not([data-done])').forEach((el) => adWatch.observe(el));
 }
+let adWatch = null;
 
 /* ---------- navigation ---------- */
 const NAV = [['', 'Home', 'home'], ['planner', 'Assistant', 'planner'], ['trips', 'Trips', 'trips'], ['map', 'Map', 'map'], ['journal', 'Journal', 'journal'], ['explore-na', 'Namibia', 'map'], ['ready', 'Ready to Go', 'passport'], ['updates', 'Updates', 'news'], ['explore', 'Explore', 'explore'], ['messages', 'Chats', 'chat'], ['account', 'Profile', 'account']];
@@ -1091,8 +1102,9 @@ async function JournalEntry(main, id) {
   const e = await api.get('journal_entries', id);
   if (!e) { main.innerHTML = '<div class="empty">Entry not found. <a href="#/journal">Back</a></div>'; return; }
   const mine = e.user_id === S.user.id || DEMO;
-  const urls = await api.photoUrls(e.photos);
-  const people = await api.profilesById([e.user_id]);
+  // photos, author and comments load together; the comment module starts loading at the same time
+  const threadMod = import('./journal-thread.js');
+  const [urls, people, comments] = await Promise.all([api.photoUrls(e.photos), api.profilesById([e.user_id]), api.comments(id).catch(() => [])]);
   const author = people[e.user_id];
   const name = (p) => (p ? (p.display_name || '@' + (p.username || 'traveller')) : 'Traveller');
   // Along the rope: the newer and older memory next to this one (own journal only)
@@ -1137,7 +1149,7 @@ async function JournalEntry(main, id) {
     $('#jdel').onclick = async () => { if (confirm('Delete this entry and its photos?')) { await api.remove('journal_entries', id); location.hash = '#/journal'; } };
   } else $('#jrep').onclick = () => reportFlow('entry', id, e.user_id);
   // comments + replies, all in place (journal-thread.js)
-  import('./journal-thread.js').then((m) => m.mountThread($('#comments'), { entryId: id, mine, open: !!(e.is_public || mine), api, sb, S, esc, ago, toast, premium })).catch(() => {});
+  threadMod.then((m) => m.mountThread($('#comments'), { entryId: id, mine, open: !!(e.is_public || mine), api, sb, S, esc, ago, toast, premium, comments })).catch(() => {});
 }
 
 /* full-screen photo viewer with swipe/arrow keys */
@@ -1908,10 +1920,11 @@ function eftFlow(pay, onDone) {
 async function Admin(main, r) {
   if (!S.isAdmin) { main.innerHTML = '<div class="notice">Admins only.</div>'; return; }
   // Admin workspace tabs: Overview (below) + Tracker / Members / Comments (admin-plus.js)
-  const v = ['tracker', 'members', 'comments'].includes(r.q.get('v')) ? r.q.get('v') : 'overview';
-  const wsTabs = `<nav class="seg ad-tabs" aria-label="Admin workspace">${[['overview', 'Overview'], ['tracker', 'Tracker'], ['members', 'Members'], ['comments', 'Comments']].map(([k, l]) => `<a href="#/admin${k === 'overview' ? '' : '?v=' + k}" aria-current="${k === v ? 'page' : 'false'}">${l}</a>`).join('')}</nav>`;
+  const VIEWS = { overview: ['Overview', 'Your business'], tracker: ['Tracker', 'Data tracker'], members: ['Members', 'Members'], comments: ['Comments', 'Place comments'] };
+  const v = VIEWS[r.q.get('v')] ? r.q.get('v') : 'overview';
+  const wsTabs = `<nav class="seg ad-tabs" aria-label="Admin workspace">${Object.entries(VIEWS).map(([k, [l]]) => [k, l]).map(([k, l]) => `<a href="#/admin${k === 'overview' ? '' : '?v=' + k}" aria-current="${k === v ? 'page' : 'false'}">${l}</a>`).join('')}</nav>`;
   if (v !== 'overview') {
-    main.innerHTML = `<div class="page-head"><div><span class="eyebrow">🛡️ Admin workspace</span><h1>${{ tracker: 'Data tracker', members: 'Members', comments: 'Place comments' }[v]}</h1></div></div>${wsTabs}<div id="adbox"></div>`;
+    main.innerHTML = `<div class="page-head"><div><span class="eyebrow">🛡️ Admin workspace</span><h1>${VIEWS[v][1]}</h1></div></div>${wsTabs}<div id="adbox"></div>`;
     try { await (await import('./admin-plus.js')).AdminPlus($('#adbox'), v, { sb, esc, fmtDate, ago, toast, money }); } catch (e) { $('#adbox').innerHTML = `<div class="notice">${esc(e.message)}</div>`; }
     return;
   }
@@ -1949,11 +1962,8 @@ async function Admin(main, r) {
     </div>`).join('') : '<div class="notice">Nothing here.</div>'}</div>`;
   $('#csv').onclick = async () => {
     const all = await api.adminPayments('all');
-    const cell = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`.replace(/^"([=+\-@])/, '"\'$1');
-    const lines = [['Date', 'Reference', 'Name', 'Email', 'Plan', 'Amount (NAD)', 'Status', 'Reviewed', 'Note'].join(',')]
-      .concat(all.map((x) => [x.created_at.slice(0, 10), x.reference, x.display_name, x.email, PLAN_NAMES[x.plan] || x.plan, x.amount, x.status, (x.reviewed_at || '').slice(0, 10), x.admin_note].map(cell).join(',')));
-    const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([lines.join('\n')], { type: 'text/csv' }));
-    a.download = `speedcurrency-payments-${new Date().toISOString().slice(0, 10)}.csv`; a.click();
+    (await import('./shared.js')).csvDownload('speedcurrency-payments', [['Date', 'Reference', 'Name', 'Email', 'Plan', 'Amount (NAD)', 'Status', 'Reviewed', 'Note'],
+      ...all.map((x) => [x.created_at.slice(0, 10), x.reference, x.display_name, x.email, PLAN_NAMES[x.plan] || x.plan, x.amount, x.status, (x.reviewed_at || '').slice(0, 10), x.admin_note])]);
   };
   $$('[data-proof]').forEach((b) => b.onclick = async () => { const u = await api.proofUrl(b.dataset.proof); if (u) window.open(u, '_blank', 'noopener'); else toast('Could not open the file'); });
   $$('[data-ok]').forEach((b) => b.onclick = async () => {

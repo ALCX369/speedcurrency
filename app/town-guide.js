@@ -7,6 +7,8 @@ import { overpass, CATS } from './explore-map.js';
 import { safeImg } from './explore-swipe.js';
 import { newsCover } from './news-cover.js';
 import { mountHeadsups } from './headsups.js';
+import { avatarHtml, nameOf, bizLabel } from './avatars.js';
+import { okImg } from './shared.js';
 
 const SECTIONS = [ // Wikivoyage listing type -> our section
   ['see', 'Top attractions', '🏛'], ['do', 'Things to do', '🏄'], ['buy', 'Malls, markets & shops', '🛍'],
@@ -182,7 +184,7 @@ export async function TownGuide(main, r, { esc, api, placeSearch, tier, modal, i
   if (c) gallery(c).then((pics) => {
     if (!alive()) return;
     pics = pics.map(safeImg).filter(Boolean);
-    townImg = pics.find((u) => /^https:\/\/upload\.wikimedia\.org\//.test(u)) || '';
+    townImg = pics.find(okImg) || '';
     gal.innerHTML = pics.length ? pics.map((u, i) => `<button type="button" class="tg-pic" data-i="${i}" style="background-image:url('${esc(u)}')" aria-label="Photo ${i + 1} of ${esc(town)}"></button>`).join('') : '';
     if (!pics.length) gal.remove();
     gal.onclick = (e) => { const b = e.target.closest('[data-i]'); if (b) modal(`<div class="pw"><img class="tg-big" src="${esc(pics[+b.dataset.i])}" alt="Photo of ${esc(town)}"><p class="small muted" style="margin:0">Photo: Wikimedia Commons</p><button class="btn small ghost" data-close style="align-self:flex-start">Close</button></div>`); };
@@ -243,20 +245,19 @@ export async function TownGuide(main, r, { esc, api, placeSearch, tier, modal, i
   const ppl = main.querySelector('#tgppl');
   try {
     const feed = (await api.feed()).filter((e) => c && e.lat != null && Math.hypot(e.lat - c.lat, (e.lng - c.lng) * Math.cos(c.lat * Math.PI / 180)) < 0.18);
-    const people = await api.profilesById(feed.map((e) => e.user_id)).catch(() => ({}));
+    // people and their photo links load together
     const seen = [...new Set(feed.map((e) => e.user_id))];
-    const AV = await import('./avatars.js');
     // photo wall: photos travellers tagged in this town, each linked to the person's profile
     const shots = feed.filter((e) => e.photos?.length).slice(0, 12);
-    const urls = shots.length ? await api.photoUrls(shots.map((e) => e.photos[0])).catch(() => []) : [];
+    const [people, urls] = await Promise.all([api.profilesById(feed.map((e) => e.user_id)).catch(() => ({})), shots.length ? api.photoUrls(shots.map((e) => e.photos[0])).catch(() => []) : []]);
     if (!alive()) return;
     const wall = shots.map((e, i) => ({ e, u: safeImg(urls[i]) })).filter((x) => x.u);
     if (wall.length) ppl.insertAdjacentHTML('beforebegin', `<div class="tg-wall" aria-label="Photos travellers tagged in ${esc(town)}">${wall.map(({ e, u }) => { const a = people[e.user_id];
-      return `<a class="tg-shot" href="#/u/${esc(e.user_id)}" style="background-image:url('${esc(u)}')" aria-label="${esc(e.title)} by ${esc(AV.nameOf(a))}">
-        <span class="tg-shot-by">${AV.avatarHtml(a, esc)}<span><b>${esc(AV.nameOf(a))}</b>${AV.bizLabel(a) ? `<small class="tg-biz">${esc(AV.bizLabel(a))}</small>` : `<small>${esc(e.title.slice(0, 40))}</small>`}</span></span></a>`; }).join('')}</div>`);
+      return `<a class="tg-shot" href="#/u/${esc(e.user_id)}" style="background-image:url('${esc(u)}')" aria-label="${esc(e.title)} by ${esc(nameOf(a))}">
+        <span class="tg-shot-by">${avatarHtml(a, esc)}<span><b>${esc(nameOf(a))}</b>${bizLabel(a) ? `<small class="tg-biz">${esc(bizLabel(a))}</small>` : `<small>${esc(e.title.slice(0, 40))}</small>`}</span></span></a>`; }).join('')}</div>`);
     // people cards: picture, name, business category, a line of their bio
     ppl.innerHTML = seen.length ? seen.map((uid) => { const a = people[uid];
-      return `<a class="tg-person" href="#/u/${esc(uid)}">${AV.avatarHtml(a, esc)}<b>${esc(AV.nameOf(a).split(' ')[0].slice(0, 14))}</b>${AV.bizLabel(a) ? `<small class="tg-biz">${esc(AV.bizLabel(a))}</small>` : ''}${a?.status_text ? `<small class="tg-bio">💬 ${esc(a.status_text)}</small>` : a?.bio ? `<small class="tg-bio">${esc(a.bio.slice(0, 60))}</small>` : ''}</a>`; }).join('')
+      return `<a class="tg-person" href="#/u/${esc(uid)}">${avatarHtml(a, esc)}<b>${esc(nameOf(a).split(' ')[0].slice(0, 14))}</b>${bizLabel(a) ? `<small class="tg-biz">${esc(bizLabel(a))}</small>` : ''}${a?.status_text ? `<small class="tg-bio">💬 ${esc(a.status_text)}</small>` : a?.bio ? `<small class="tg-bio">${esc(a.bio.slice(0, 60))}</small>` : ''}</a>`; }).join('')
       : `<p class="small muted" style="margin:0">Nobody has shared ${esc(town)} yet. Be the first: add a public memory from your journey.</p>`;
   } catch { if (alive()) ppl.innerHTML = '<p class="small muted" style="margin:0">Could not load travellers right now.</p>'; }
 

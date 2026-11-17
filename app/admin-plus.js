@@ -5,14 +5,10 @@
 //   Comments: newest place comments, remove any.
 // The Overview + payments view stays in app.js (Admin).
 
-const NOT_READY = '<div class="notice">This part needs database update 016. Run it once in Supabase (SQL editor), then reload.</div>';
-const csvCell = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`.replace(/^"([=+\-@])/, '"\'$1'); // no spreadsheet formulas
-function download(name, rows) {
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(new Blob([rows.map((r) => r.map(csvCell).join(',')).join('\n')], { type: 'text/csv' }));
-  a.download = `${name}-${new Date().toISOString().slice(0, 10)}.csv`; a.click();
-}
+import { csvDownload, notReady } from './shared.js';
 
+// update 016 not installed yet -> a clear note; any other error (offline, signed out) says what happened
+const failed = (err, esc) => (notReady(err) ? '<div class="notice">This part needs database update 016. Run it once in Supabase (SQL editor), then reload.</div>' : `<div class="notice">Could not load this: ${esc(err.message || 'connection problem')}. Try again.</div>`);
 // small line chart, accessible: the numbers are also in the table below
 function spark(points, label) {
   const w = 280, h = 64, n = points.length;
@@ -30,7 +26,7 @@ export async function AdminPlus(box, view, { sb, esc, fmtDate, ago, toast, money
 
   if (view === 'tracker') {
     const { data, error } = await sb.rpc('admin_track');
-    if (error) { box.innerHTML = NOT_READY; return; }
+    if (error) { box.innerHTML = failed(error, esc); return; }
     const rows = data || [];
     const last = rows[rows.length - 1] || {}, first = rows[0] || {};
     const M = [['members', 'Members'], ['paying', 'Paying members'], ['revenue_total', 'Earned all time (N$)'], ['questions_total', 'AI questions asked'], ['memories_total', 'Memories saved'], ['comments_total', 'Place comments']];
@@ -40,14 +36,14 @@ export async function AdminPlus(box, view, { sb, esc, fmtDate, ago, toast, money
       <div class="row between wrap" style="margin:18px 0 8px"><h3>Daily record</h3><button type="button" class="btn small ghost" id="adcsv">Download CSV</button></div>
       <div class="ad-table-wrap"><table class="ad-table"><thead><tr><th>Day</th><th>Members</th><th>Paying</th><th>Earned N$</th><th>Pending</th><th>AI Qs</th><th>Memories</th><th>Comments</th></tr></thead>
       <tbody>${rows.slice().reverse().map((r) => `<tr><td>${esc(fmtDate(r.day))}</td><td>${r.members}</td><td>${r.paying}</td><td>${money(r.revenue_total, 0)}</td><td>${r.payments_pending}</td><td>${r.questions_total}</td><td>${r.memories_total}</td><td>${r.comments_total}</td></tr>`).join('')}</tbody></table></div>`;
-    box.querySelector('#adcsv').onclick = () => download('speedcurrency-tracker', [['Day', 'Members', 'Paying', 'Earned NAD', 'Pending payments', 'AI questions', 'Memories', 'Comments', 'Reports 30d'],
+    box.querySelector('#adcsv').onclick = () => csvDownload('speedcurrency-tracker', [['Day', 'Members', 'Paying', 'Earned NAD', 'Pending payments', 'AI questions', 'Memories', 'Comments', 'Reports 30d'],
       ...rows.map((r) => [r.day, r.members, r.paying, r.revenue_total, r.payments_pending, r.questions_total, r.memories_total, r.comments_total, r.reports_30d])]);
     return;
   }
 
   if (view === 'members') {
     const { data, error } = await sb.rpc('admin_members');
-    if (error) { box.innerHTML = NOT_READY; return; }
+    if (error) { box.innerHTML = failed(error, esc); return; }
     const all = data || [];
     const now = Date.now();
     const plan = (m) => (m.plan !== 'free' && m.premium_until && new Date(m.premium_until) > now ? m.plan : 'free');
@@ -65,14 +61,14 @@ export async function AdminPlus(box, view, { sb, esc, fmtDate, ago, toast, money
         <span class="small">Joined ${esc(fmtDate(m.created_at))} · last seen ${m.last_sign_in ? esc(ago(m.last_sign_in)) : 'never'} · ${m.memories} memories · ${m.questions} AI questions · ${m.comments} comments</span></div>`).join('') || '<div class="notice">No one matches.</div>';
     };
     box.querySelector('#adq').oninput = draw; draw();
-    box.querySelector('#adcsv').onclick = () => download('speedcurrency-members', [['Name', 'Username', 'Email', 'Country', 'Plan', 'Paid until', 'Type', 'Joined', 'Last seen', 'Memories', 'AI questions', 'Comments'],
+    box.querySelector('#adcsv').onclick = () => csvDownload('speedcurrency-members', [['Name', 'Username', 'Email', 'Country', 'Plan', 'Paid until', 'Type', 'Joined', 'Last seen', 'Memories', 'AI questions', 'Comments'],
       ...all.map((m) => [m.display_name, m.username, m.email, m.home_country, plan(m), (m.premium_until || '').slice(0, 10), m.account_type, (m.created_at || '').slice(0, 10), (m.last_sign_in || '').slice(0, 10), m.memories, m.questions, m.comments])]);
     return;
   }
 
   if (view === 'comments') {
     const { data, error } = await sb.from('place_comments').select('id, place_key, place_name, user_id, body, created_at').order('created_at', { ascending: false }).limit(100);
-    if (error) { box.innerHTML = NOT_READY; return; }
+    if (error) { box.innerHTML = failed(error, esc); return; }
     box.innerHTML = (data || []).length ? `<div class="stack">${data.map((c) => `<div class="card ad-member" id="c-${esc(c.id)}">
         <div class="row between wrap"><b>${esc(c.place_name)}</b><span class="small muted">${esc(ago(c.created_at))}</span></div>
         <p style="margin:4px 0">${esc(c.body)}</p>

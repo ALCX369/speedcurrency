@@ -1,10 +1,12 @@
 // ☥ ALCX · 3·6·9 · life path 33/6 · love, peace, 520 741 8
-// Profile pictures (public "avatars" bucket, migration 016) + business category labels.
+// Profile pictures (public "avatars" bucket, migration 016) + the business category badge.
 // avatarUrl(path) -> public image address; avatarHtml(person) -> picture or the first letter;
 // pickAvatar() lets you choose a photo, shrinks it to 512 px on the phone, uploads it and saves it on your profile.
 
-export const BIZ = { lodge: '🛏 Lodge', restaurant: '🍽 Restaurant', tour: '🧭 Tours', shop: '🛍 Shop', transport: '🚐 Transport', guide: '🎒 Guide', other: '🏷 Business' };
-export const bizLabel = (a) => (a?.account_type === 'business' ? BIZ[a.biz_category] || BIZ.other : '');
+import { CATS } from './business.js';
+import { notReady, SOON } from './shared.js';
+
+export const bizLabel = (a) => (a?.account_type === 'business' ? CATS[a.biz_category] || CATS.other : '');
 
 export function avatarUrl(path) {
   const base = window.SC_CONFIG?.SUPABASE_URL;
@@ -48,7 +50,7 @@ export function pickAvatar({ sb, S, DEMO, toast, onDone }) {
       if (S.profile) S.profile.avatar_path = path;
       toast('Profile picture updated');
       onDone?.(path);
-    } catch (e) { toast(/bucket|not found|row-level|policy/i.test(e.message || '') ? 'Profile pictures are switching on soon' : e.message); }
+    } catch (e) { toast(notReady(e) ? SOON : e.message); }
   };
   inp.click();
 }

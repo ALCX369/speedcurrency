@@ -17,9 +17,19 @@ drop policy if exists "place comments readable" on public.place_comments;
 create policy "place comments readable" on public.place_comments for select using (true);
 drop policy if exists "signed in can comment" on public.place_comments;
 create policy "signed in can comment" on public.place_comments for insert to authenticated
-  with check (auth.uid() = user_id
-    -- gentle spam guard: at most 30 comments per person per hour
-    and (select count(*) from public.place_comments c where c.user_id = auth.uid() and c.created_at > now() - interval '1 hour') < 30);
+  with check (auth.uid() = user_id);
+-- gentle spam guard: at most 30 comments per person per hour (its own error, so the app can say "slow down")
+create or replace function public.place_comments_rate_limit() returns trigger
+language plpgsql security definer set search_path = public as $$
+begin
+  if exists (select 1 from admins a where a.user_id = new.user_id) then return new; end if; -- the owner is unlimited
+  if (select count(*) from place_comments c where c.user_id = new.user_id and c.created_at > now() - interval '1 hour') >= 30 then
+    raise exception 'rate_limited' using errcode = 'P0001';
+  end if;
+  return new;
+end $$;
+drop trigger if exists place_comments_rate_limit on public.place_comments;
+create trigger place_comments_rate_limit before insert on public.place_comments for each row execute function public.place_comments_rate_limit();
 drop policy if exists "own or admin delete comment" on public.place_comments;
 create policy "own or admin delete comment" on public.place_comments for delete to authenticated
   using (auth.uid() = user_id or public.is_admin());

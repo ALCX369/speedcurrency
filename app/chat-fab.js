@@ -27,6 +27,7 @@ const GREET = /^(hi+|hello|hey|hallo|howzit|heita|good (morning|afternoon|evenin
 const THANKS = /^(thanks?( you)?|thank u|thx|cheers|great,? thanks?|ok(ay)?,? thanks?)[\s!.,]*$/i;
 const BYE = /^(bye|goodbye|see you|later|that'?s all|no thanks?|nothing else)[\s!.,]*$/i;
 const IDLE_MS = 3 * 60 * 1000; // the chat closes after 3 minutes without activity
+const smallTalk = (s) => GREET.test(s) || THANKS.test(s) || BYE.test(s);
 
 export function mountFab({ api, esc, md, DEMO, uid, name = '', profileMemory = '' }) {
   document.getElementById('scfab')?.remove(); document.querySelector('.fab-sheet')?.remove(); // a new account gets a fresh Nami
@@ -41,14 +42,15 @@ export function mountFab({ api, esc, md, DEMO, uid, name = '', profileMemory = '
   // simplified memory: the towns and the last few questions, kept short and saved on the account
   const remember = () => {
     const towns = [...new Set(log.map((m) => m.town).filter(Boolean))].slice(-4);
-    const topics = log.filter((m) => m.who === 'me' && !GREET.test(m.text) && !THANKS.test(m.text) && !BYE.test(m.text)).slice(-4).map((m) => m.text.replace(/\s+/g, ' ').slice(0, 70));
+    const topics = log.filter((m) => m.who === 'me' && !smallTalk(m.text)).slice(-4).map((m) => m.text.replace(/\s+/g, ' ').slice(0, 70));
     if (!towns.length && !topics.length) return;
-    memory = `${towns.length ? `Towns: ${towns.join(', ')}. ` : ''}${topics.length ? `Recent questions: ${topics.join(' | ')}.` : ''} (as of ${new Date().toISOString().slice(0, 10)})`.slice(0, 600);
-    save();
+    const next = `${towns.length ? `Towns: ${towns.join(', ')}. ` : ''}${topics.length ? `Recent questions: ${topics.join(' | ')}.` : ''} (as of ${new Date().toISOString().slice(0, 10)})`.slice(0, 600);
+    if (next === memory) return; // nothing new: no save, no server write
+    memory = next; save();
     if (!DEMO && uid) api.update('profiles', uid, { nami_memory: memory }).catch(() => {}); // works once update 016 is in
   };
-  const welcome = () => `${daypart()}${first ? `, ${esc(first)}` : ''}! I'm ${BOT} from SpeedCurrency.`
-    + (memory && /Towns: ([^.]+)/.test(memory) ? ` Good to see you again. Still thinking about ${esc(memory.match(/Towns: ([^.]+)/)[1].split(',')[0])}?` : ' How can I help with your trip today?');
+  const welcome = () => { const town = memory.match(/Towns: ([^,.]+)/)?.[1];
+    return `${daypart()}${first ? `, ${esc(first)}` : ''}! I'm ${BOT} from SpeedCurrency.` + (town ? ` Good to see you again. Still thinking about ${esc(town)}?` : ' How can I help with your trip today?'); };
 
   let idle = 0;
   const touch = () => { clearTimeout(idle); idle = setTimeout(() => { if (sheet.hidden) return; bubble('bot', '<span class="muted">This chat was closed after 3 minutes without activity. Your conversation is saved, so you can pick up where you left off any time.</span>'); remember(); setTimeout(close, 1800); }, IDLE_MS); };

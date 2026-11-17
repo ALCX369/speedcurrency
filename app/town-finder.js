@@ -3,6 +3,7 @@
 // then a preview popup opens inside the app with the full Town Guide: facts, fuel, attractions,
 // malls, sport, events, photos, travellers and a short-answer "ask about this town" box.
 import { TownGuide } from './town-guide.js';
+import { regionNow, setRegion } from './shared.js';
 
 const BBOX = { NA: '11.7,-29.0,25.3,-16.9', ZA: '16.4,-34.9,32.9,-22.1' };
 const NAMES = { NA: 'Namibia', ZA: 'South Africa' };
@@ -31,7 +32,7 @@ export function openTownPreview(t, deps) {
 /** The searchable finder: country switch, live suggestions, keyboard friendly. */
 export function mountTownFinder(el, deps) {
   const { esc } = deps;
-  let cc = (() => { try { return localStorage.getItem('sc_cc') === 'ZA' ? 'ZA' : 'NA'; } catch { return 'NA'; } })(), t = 0, req = 0, list = [];
+  let cc = regionNow(), t = 0, req = 0, list = [];
   el.innerHTML = `
     <div class="tf">
       <div class="seg tf-cc" role="group" aria-label="Country"><button type="button" data-cc="NA" aria-pressed="${cc === 'NA'}">🇳🇦 Namibia</button><button type="button" data-cc="ZA" aria-pressed="${cc === 'ZA'}">🇿🇦 South Africa</button></div>
@@ -61,7 +62,6 @@ export function mountTownFinder(el, deps) {
     const b = e.target.closest('[data-cc]'); if (!b) return; cc = b.dataset.cc;
     el.querySelectorAll('[data-cc]').forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
     inp.placeholder = cc === 'NA' ? 'Search a town, e.g. Ondangwa' : 'Search a town, e.g. Stellenbosch'; search(); inp.focus();
-    try { localStorage.setItem('sc_cc', cc); } catch { /* private mode */ }
-    window.dispatchEvent(new CustomEvent('sc:country', { detail: { cc } })); // Explore re-deals its towns and attractions
+    setRegion(cc); // Explore re-deals its towns and attractions
   });
 }

@@ -1240,18 +1240,18 @@ h1{font-style:italic;font-weight:700;letter-spacing:-.02em}
 
 /* Theme mods: each one retunes the light page and the dark islands */
 :root[data-mod="ember"]{--bg:#F3F1EE;--soft:#ECE8E3;--line:#E0DAD3;--accent:#D9481A;--accent-dark:#A8340F;--gold-hi:#FF8A5C;--t-ring:#FF5A1F}
-:root[data-mod="ember"] :is(.card.night,.pulse,.sw-card,.pf-hero,.tg-hero,.fab-sheet,.tg-askbox,.js-otd,.tr-teaser){--accent:#FF5A1F;--gold-hi:#FF8A5C}
+:root[data-mod="ember"] :is(.card.night,.pulse,.sw-card,.pf-hero,.tg-hero,.fab-sheet,.tg-askbox,.js-otd,.tr-teaser,.next-trip){--accent:#FF5A1F;--gold-hi:#FF8A5C}
 :root[data-mod="ember"] .pf-hero{background:linear-gradient(115deg,transparent 0 62%,rgba(255,90,31,.9) 62% 66%,transparent 66% 70%,rgba(255,90,31,.55) 70% 72%,transparent 72%),radial-gradient(120% 120% at 50% 0,#2B1A12,#0E0D0C 65%)}
 :root[data-mod="ember"] .pf-stats b,:root[data-mod="ember"] .pr-n{font-family:var(--body);font-style:italic;font-weight:900;letter-spacing:-.03em}
 :root[data-mod="ember"] .fab{background:linear-gradient(145deg,#FF8A5C,#FF5A1F 55%,#B83A0E);color:#fff}
 :root[data-mod="ember"] .btn.primary{box-shadow:inset 0 -2px 0 #FF5A1F}
 :root[data-mod="ocean"]{--bg:#EEF3F5;--soft:#E3EBEF;--line:#D3DEE3;--accent:#2B7FA3;--accent-dark:#1C5C78;--gold-hi:#7CC3E0;--t-ring:#5FB8DC}
-:root[data-mod="ocean"] :is(.card.night,.pulse,.sw-card,.pf-hero,.tg-hero,.fab-sheet,.tg-askbox,.js-otd,.tr-teaser){--accent:#5FB8DC;--gold-hi:#9ED6EC}
+:root[data-mod="ocean"] :is(.card.night,.pulse,.sw-card,.pf-hero,.tg-hero,.fab-sheet,.tg-askbox,.js-otd,.tr-teaser,.next-trip){--accent:#5FB8DC;--gold-hi:#9ED6EC}
 :root[data-mod="ocean"] .pf-hero,:root[data-mod="ocean"] .pulse{background:radial-gradient(120% 120% at 50% 0,#163445,#0B161C 65%)}
 :root[data-mod="ocean"] .fab{background:linear-gradient(145deg,#9ED6EC,#5FB8DC 55%,#2B7FA3);color:#0B161C}
 :root[data-mod="ocean"] .btn.primary{box-shadow:inset 0 -2px 0 #5FB8DC}
 :root[data-mod="rose"]{--bg:#F7F0EF;--soft:#F0E5E3;--line:#E6D6D3;--accent:#B8506A;--accent-dark:#8E3850;--gold-hi:#F0A8B8;--t-ring:#E08AA0}
-:root[data-mod="rose"] :is(.card.night,.pulse,.sw-card,.pf-hero,.tg-hero,.fab-sheet,.tg-askbox,.js-otd,.tr-teaser){--accent:#E08AA0;--gold-hi:#F5C2CD}
+:root[data-mod="rose"] :is(.card.night,.pulse,.sw-card,.pf-hero,.tg-hero,.fab-sheet,.tg-askbox,.js-otd,.tr-teaser,.next-trip){--accent:#E08AA0;--gold-hi:#F5C2CD}
 :root[data-mod="rose"] .pf-hero,:root[data-mod="rose"] .pulse{background:radial-gradient(120% 120% at 50% 0,#3A1E26,#160D10 65%)}
 :root[data-mod="rose"] .fab{background:linear-gradient(145deg,#F5C2CD,#E08AA0 55%,#B8506A);color:#1E1316}
 :root[data-mod="rose"] .btn.primary{box-shadow:inset 0 -2px 0 #E08AA0}

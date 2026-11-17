@@ -2,6 +2,8 @@
 // "I've been here": add a past visit (e.g. Cape Town last year) straight into your Journey as a memory.
 // Pick the year (month optional) and a short caption; the Journey grid groups memories by year, newest first.
 
+import { placeLabel } from './shared.js';
+
 export function beenHereSheet({ place, api, modal, esc, toast }) {
   const now = new Date(); const Y = now.getFullYear();
   const years = Array.from({ length: 40 }, (_, k) => Y - k);
@@ -25,7 +27,7 @@ export function beenHereSheet({ place, api, modal, esc, toast }) {
         const e = await api.insert('journal_entries', {
           title: pnl.querySelector('#bht').value.trim().slice(0, 80) || place.name,
           story: pnl.querySelector('#bhs').value.trim().slice(0, 200) || null,
-          place_name: [place.name, place.town && place.town !== place.name ? place.town : ''].filter(Boolean).join(', ').slice(0, 120),
+          place_name: placeLabel(place).slice(0, 120),
           visited_on: `${y}-${String(Math.max(1, m)).padStart(2, '0')}-01`,
           lat: Number.isFinite(place.lat) ? place.lat : null, lng: Number.isFinite(place.lng) ? place.lng : null,
           is_public: pnl.querySelector('#bhp').checked, photos: [],
