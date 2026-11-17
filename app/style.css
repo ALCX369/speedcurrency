@@ -1309,3 +1309,27 @@ h1{font-style:italic;font-weight:700;letter-spacing:-.02em}
 .linklike{min-height:32px;padding:0 4px;border:0;background:none;color:var(--accent-dark);font:inherit;font-weight:700;text-decoration:underline;cursor:pointer}
 .ad.local{display:flex;flex-direction:column;gap:2px;padding:14px 16px;border-radius:20px;background:linear-gradient(135deg,#2A2116,#110E0A);color:#F3ECDF;text-decoration:none;border:1px solid rgba(216,166,87,.35)}
 .ad.local .tag{color:#E2B466;font-size:11px;font-weight:800;letter-spacing:.08em}.ad.local b{font-family:var(--display);font-size:22px}.ad.local small{color:#D3C8B4}
+
+/* Journey Replay ("Play my journey" on the Trail map) */
+.js-trail{position:relative}
+.jr-play{position:absolute;left:50%;bottom:18px;transform:translateX(-50%);min-height:48px;padding:0 22px;border:0;border-radius:999px;font:inherit;font-weight:800;color:#17120A;background:linear-gradient(135deg,#F0CB8A,#D8A657 55%,#FF6A2B);box-shadow:0 10px 30px rgba(0,0,0,.45);cursor:pointer}
+.jr-play:focus-visible,.jr-b:focus-visible{outline:3px solid #F0CB8A;outline-offset:3px}
+.jr{position:absolute;inset:0;pointer-events:none;color:#F3ECDF}
+.jr>*{pointer-events:auto}
+.jr-hud{position:absolute;left:14px;top:14px;display:flex;gap:8px}
+.jr-hud span{padding:8px 12px;border-radius:14px;background:rgba(13,11,8,.78);border:1px solid rgba(216,166,87,.35);font-size:.8rem;color:#C9BFAD}
+.jr-hud b{font-size:1.15rem;color:#F0CB8A;font-variant-numeric:tabular-nums}
+.jr-ctl{position:absolute;right:14px;top:14px;display:flex;gap:8px}
+.jr-b{width:44px;height:44px;border-radius:50%;border:1px solid rgba(216,166,87,.45);background:rgba(13,11,8,.78);color:#F0CB8A;font-size:1rem;cursor:pointer}
+.jr-card{position:absolute;left:14px;right:14px;bottom:22px;display:flex;gap:12px;align-items:center;padding:10px;border-radius:22px;background:rgba(23,20,15,.92);border:1px solid rgba(216,166,87,.35);box-shadow:0 14px 34px rgba(0,0,0,.5);opacity:0;transform:translateY(16px);transition:opacity .45s ease,transform .45s ease}
+.jr-card.in{opacity:1;transform:none}
+.jr-ph{flex:0 0 76px;height:76px;border-radius:16px;background:#221D16 center/cover no-repeat}
+.jr-tx{display:grid;gap:3px;min-width:0}
+.jr-tx small{color:#B8AE9A;font-size:.75rem}
+.jr-tx b{font-family:'Cormorant Garamond',Georgia,serif;font-size:1.35rem;line-height:1.1;color:#F3ECDF;overflow:hidden;text-overflow:ellipsis}
+.jr-tx a{color:#F0CB8A;font-size:.8rem;font-weight:700;min-height:24px}
+.jr-end{padding:6px 8px}
+.jr-end b{font-size:1.6rem;color:#F0CB8A}
+.jr-bar{position:absolute;left:0;right:0;bottom:0;height:4px;background:rgba(216,166,87,.18)}
+.jr-bar i{display:block;height:100%;width:0;background:linear-gradient(90deg,#F0CB8A,#FF6A2B);transition:width .6s ease}
+@media (prefers-reduced-motion:reduce){.jr-card,.jr-bar i{transition:none}}

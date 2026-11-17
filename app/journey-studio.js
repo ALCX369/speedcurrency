@@ -2,7 +2,7 @@
 // Journey Studio: the "My journey" page in four views and the habits that bring travellers back.
 //   Stamps: a passport of gold town stamps (collect 50+ towns, rare park stamps) + "On this day".
 //   Film:   a cinematic full-screen scroll of your memories.
-//   Trail:  a glowing gold route across the map, memory to memory.
+//   Trail:  a glowing gold route across the map, memory to memory, with "Play my journey" (journey-replay.js).
 //   Rope:   the original rope of knots (journal-rope.js).
 // Plus Journey Wrapped (a story recap you can share) and Friends' activity.
 // Healthy hooks only: rewards and progress, no guilt messages or fake alerts.
@@ -101,7 +101,7 @@ export async function JourneyStudio(main, deps) {
     },
     async trail() {
       if (placesWithGeo.length < 1) { box.innerHTML = '<div class="empty">Add a place to your memories and your trail glows here.</div>'; return; }
-      box.innerHTML = '<div class="js-trail"><div id="jstrailmap" role="application" aria-label="Your journey trail"></div></div><p class="small muted">Map © OpenStreetMap contributors · tiles OpenFreeMap</p>';
+      box.innerHTML = `<div class="js-trail"><div id="jstrailmap" role="application" aria-label="Your journey trail"></div>${placesWithGeo.length > 1 ? '<button type="button" class="jr-play" id="jrplay" hidden>▶ Play my journey</button>' : ''}</div><p class="small muted">Map © OpenStreetMap contributors · tiles OpenFreeMap</p>`;
       await loadMapLib().catch(() => {}); if (!window.maplibregl || view !== 'trail' || !box.querySelector('#jstrailmap')) return; // tab changed while loading
       const map = new maplibregl.Map({ container: 'jstrailmap', style: 'https://tiles.openfreemap.org/styles/dark', bounds: [[11.5, -35.2], [33.2, -16.8]], attributionControl: { compact: true } });
       const coords = placesWithGeo.map((e) => [e.lng, e.lat]);
@@ -110,11 +110,22 @@ export async function JourneyStudio(main, deps) {
         map.addLayer({ id: 'trail-glow', type: 'line', source: 'trail', paint: { 'line-color': '#FF6A2B', 'line-width': 10, 'line-blur': 8, 'line-opacity': .45 } });
         map.addLayer({ id: 'trail', type: 'line', source: 'trail', layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': '#F0CB8A', 'line-width': 3, 'line-dasharray': [1, 1.6] } });
         const bb = new maplibregl.LngLatBounds(); coords.forEach((c) => bb.extend(c)); if (coords.length > 1) map.fitBounds(bb, { padding: 60, maxZoom: 11 }); else map.flyTo({ center: coords[0], zoom: 10 });
+        const play = box.querySelector('#jrplay'); if (!play) return;
+        play.hidden = false;
+        play.onclick = async () => {
+          play.hidden = true;
+          const { playJourney } = await import('./journey-replay.js');
+          if (view !== 'trail') return;
+          stopReplay = playJourney({ map, places: placesWithGeo, coverOf, esc, fmtDate, dateOf, km, host: box.querySelector('.js-trail') });
+          const back = new MutationObserver(() => { if (!box.querySelector('.jr')) { play.hidden = false; back.disconnect(); } });
+          back.observe(box.querySelector('.js-trail'), { childList: true });
+        };
       });
+      let stopReplay = null;
       placesWithGeo.forEach((e, i) => { const el = document.createElement('a'); el.className = 'js-pin'; el.href = `#/journal/${e.id}`; el.textContent = String(i + 1); el.setAttribute('aria-label', e.title);
         const c = coverOf(e); if (c) { el.style.backgroundImage = `url('${c}')`; el.textContent = ''; }
         new maplibregl.Marker({ element: el }).setLngLat([e.lng, e.lat]).addTo(map); });
-      return () => map.remove();
+      return () => { if (stopReplay) stopReplay(); map.remove(); };
     },
     async rope() { return await JournalRope(box, ropeDeps); },
   };

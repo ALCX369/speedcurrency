@@ -6,7 +6,7 @@
 // Progress is kept on this device (per account).
 
 const LEVELS = [[0, 'Wanderer'], [100, 'Scout'], [250, 'Pathfinder'], [500, 'Dune Walker'], [900, 'Trailblazer'], [1500, 'Desert Fox'], [2500, 'Skeleton Coast Captain'], [4000, 'Namib Legend']];
-const XP = { postcard: 10, wrapped: 5, open: 10, memory: 40, photo: 5, town: 15, place: 5, convert: 2, ready: 5, updates: 5, explore: 5, tag: 10 };
+const XP = { postcard: 10, wrapped: 5, open: 10, memory: 40, photo: 5, town: 15, place: 5, convert: 2, ready: 5, updates: 5, explore: 5, tag: 10, replay: 5 };
 const DAILY_CAP = { convert: 5, place: 10, photo: 12 }; // stops XP farming
 const QUESTS = [
   ['town', 1, 'Explore a town on the map', '#/explore', 25],
